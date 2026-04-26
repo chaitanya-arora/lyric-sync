@@ -73,6 +73,9 @@ def me():
     
     response = requests.get(f"{SPOTIFY_API_URL}/me", headers={'Authorization': f'Bearer {access_token}'})
 
+    if response.status_code != 200:
+        return f"Spotify API error: {response.status_code} - {response.text}", 400
+
     return jsonify(response.json())
 
 if __name__ == '__main__':

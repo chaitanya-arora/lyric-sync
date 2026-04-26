@@ -106,7 +106,7 @@ def now_playing():
     return jsonify({
         'playing': True, 
         'song': track['name'], 
-        'artist': ','.join([a['name'] for a in track['artists']]),
+        'artist': ', '.join([a['name'] for a in track['artists']]),
         'album': track['album']['name'],
         'album_art': track['album']['images'][0]['url'],
         'progress_ms': data['progress_ms'], # will be used to sync lyrics (original + autotranslations)

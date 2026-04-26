@@ -78,5 +78,39 @@ def me():
 
     return jsonify(response.json())
 
+@app.route('/now-playing')
+def now_playing():
+    access_token = session.get('access_token')
+
+    if not access_token:
+        return redirect('/login')
+
+    response = requests.get(f"{SPOTIFY_API_URL}/me/player/currently-playing", headers={'Authorization': f'Bearer {access_token}'})
+
+    if response.status_code == 204:
+        return jsonify({'playing': False, 'message': 'Nothing is currently playing'})
+    
+    if response.status_code != 200:
+        return f"Spotify API error: {response.status_code} - {response.text}", 400
+
+    data = response.json()
+
+    # only focus on tracks for MVP (ignore podcasts, audiobooks, etc.)
+    if not data or data.get('currently_playing_type') != 'track':
+        return jsonify({'playing': False, 'message': 'No track is playing'})
+    
+    track = data['item']
+
+    return jsonify({
+        'playing': True, 
+        'song': track['name'], 
+        'artist': ','.join([a['name'] for a in track['artists']]),
+        'album': track['album']['name'],
+        'album_art': track['album']['images'][0]['url'],
+        'progress_ms': data['progress_ms'], # will be used to sync lyrics (original + autotranslations)
+        'duration_ms': track['duration_ms'],
+        'track_id': track['id'] # will be useful when storing recently translated songs 
+        })
+
 if __name__ == '__main__':
     app.run(debug=True)

@@ -1,4 +1,5 @@
 from flask import Flask, redirect, request, session, jsonify
+from flask_cors import CORS
 from dotenv import load_dotenv
 import os 
 import requests
@@ -8,6 +9,7 @@ import secrets
 load_dotenv()
 
 app = Flask(__name__)
+CORS(app)
 app.secret_key = secrets.token_hex(16)
 
 SPOTIFY_CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID')

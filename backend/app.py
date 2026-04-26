@@ -1,4 +1,4 @@
-from flask import Flask, redirect, request, session, jsonify
+from flask import Flask, redirect, request, session, jsonify, render_template
 from flask_cors import CORS
 from dotenv import load_dotenv
 import os 
@@ -10,7 +10,7 @@ load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
-app.secret_key = secrets.token_hex(16)
+app.secret_key = os.getenv('FLASK_SECRET_KEY')
 
 SPOTIFY_CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID')
 SPOTIFY_CLIENT_SECRET = os.getenv('SPOTIFY_CLIENT_SECRET')
@@ -24,7 +24,7 @@ SCOPE = 'user-read-currently-playing'
 
 @app.route('/')
 def home():
-    return 'LyricSync is alive!'
+    return render_template('index.html')
 
 @app.route('/login')
 def login():

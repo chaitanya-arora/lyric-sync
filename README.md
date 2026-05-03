@@ -82,8 +82,15 @@ Link to Figma file: https://www.figma.com/design/UoPAiZB3V8ZwUjF9f05Yb2/LyricSyn
 ---
 
 ## Technical decisions
-For the MVP, I have chosen to focus on building functionality for French -> English translation and then extend to other languages. This is why I chose to use DeepL over Google Translate to handle lyric translation as DeepL produces noticeably more natural translations for European languages, particularly French.
 
+For the MVP, I have chosen to focus on building functionality for French -> English translation and then extend to other languages. This is why I chose to use DeepL over Google Translate to handle lyric translation as DeepL produces noticeably more natural translations for European languages, particularly French. 
+
+**Hindi translation:** Songs with Devanagari script (e.g. Kesariya)
+translate well via DeepL, with occasional misdetection between Hindi
+(HI) and the closely related Maithili (MAI) on certain phrases.
+Romanised Hindi (Hinglish) is unreliable across all translation APIs
+as language detection fails on short Latin-script phrases. A
+preprocessing step for Hinglish is planned for version 2.
 ---
 
 ## About

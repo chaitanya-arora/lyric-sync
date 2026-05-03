@@ -22,6 +22,44 @@ SPOTIFY_API_URL = 'https://api.spotify.com/v1'
 
 SCOPE = 'user-read-currently-playing'
 
+def parse_lrc(lrc_text):
+    lines = []
+    for line in lrc_text.strip().split('\n'):
+        line = line.strip()
+        if not line: 
+            continue 
+        if not line.startswith('['):
+            continue # skips any line that isn't a lyric line
+        try:
+            timestamp_end = line.index(']')
+            timestamp_str = line[1:timestamp_end]
+            text = line[timestamp_end + 1:].strip()
+
+            if not text:
+                continue
+            if ':' not in timestamp_str:
+                continue
+            
+            minutes, rest = timestamp_str.split(':', 1)
+            seconds = rest.split('.')[0]
+            hundredths = rest.split('.')[1] if '.' in rest else '0'
+
+            time_ms = (
+                int(minutes) * 60 * 1000 +
+                int(seconds) * 1000 +
+                int(hundredths.ljust(3, '0')[:3])
+            )
+
+            lines.append({
+                'time_ms': time_ms,
+                'text': text
+            })
+
+        except (ValueError, IndexError):
+            continue
+
+    return lines
+
 @app.route('/')
 def home():
     return render_template('index.html')
@@ -113,6 +151,65 @@ def now_playing():
         'duration_ms': track['duration_ms'],
         'track_id': track['id'] # will be useful when storing recently translated songs 
         })
+
+@app.route('/lyrics')
+def lyrics():
+    song = request.args.get('song')
+    artist = request.args.get('artist')
+
+    if not song or not artist:
+        return jsonify({'error': 'song and artist parameters required'}), 400
+
+    response = requests.get(
+        'https://lrclib.net/api/get',
+        params={
+            'track_name': song,
+            'artist_name': artist
+        },
+        headers={'User-Agent': 'LyricSync/1.0 (https://github.com/chaitanya-arora/lyric-sync)'}
+    )
+
+    if response.status_code == 404:
+        return jsonify({
+            'found': False,
+            'message': 'No lyrics found for this track'
+        })
+
+    if response.status_code != 200:
+        return jsonify({
+            'found': False,
+            'message': f'LRCLIB error: {response.status_code}'
+        }), 400
+
+    data = response.json()
+
+    synced_lyrics = data.get('syncedLyrics')
+    plain_lyrics = data.get('plainLyrics')
+
+    if synced_lyrics:
+        parsed = parse_lrc(synced_lyrics)
+        return jsonify({
+            'found': True,
+            'synced': True,
+            'lyrics': parsed
+        })
+
+    if plain_lyrics:
+        lines = [
+            {'time_ms': None, 'text': line}
+            for line in plain_lyrics.strip().split('\n')
+            if line.strip()
+        ]
+        return jsonify({
+            'found': True,
+            'synced': False,
+            'lyrics': lines
+        })
+
+    return jsonify({
+        'found': False,
+        'message': 'No lyrics available for this track'
+    })
 
 if __name__ == '__main__':
     app.run(debug=True)

@@ -125,6 +125,7 @@ def fetch_lyrics(song, artist):
 
     return {'found': False, 'message': 'No lyrics available for this track'}
 
+
 @app.route('/')
 def home():
     return render_template('index.html')
@@ -230,10 +231,12 @@ def lyrics():
 @app.route('/translate')
 def translate():
     track_id = request.args.get('track_id')
+    song = request.args.get('song')
+    artist = request.args.get('artist')
     target_lang = request.args.get('target_lang', 'EN')
 
-    if not track_id:
-        return jsonify({'error': 'track_id parameter required'}), 400
+    if not track_id or not song or not artist:
+        return jsonify({'error': 'song, artist and track_id parameters required'}), 400
 
     cache_key = f"{track_id}_{target_lang}"
     if cache_key in translation_cache:
@@ -243,10 +246,7 @@ def translate():
             'lyrics': translation_cache[cache_key]
         })
 
-    lyrics_data = fetch_lyrics(
-        request.args.get('song'),
-        request.args.get('artist')
-    )
+    lyrics_data = fetch_lyrics(song, artist)
 
     if not lyrics_data.get('found'):
         return jsonify({

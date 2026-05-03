@@ -1,40 +1,46 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <title>LyricSync</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LyricSync</title>
+  <link rel="stylesheet" href="/static/style.css">
 </head>
-
 <body>
 
-    <h1 id="song-title">Loading...</h1>
-    <p id="artist-name"></p>
+  <!-- top bar: album art + track info + language badge -->
+  <div id="top-bar" style="display:none;">
+    <img id="album-art" src="" alt="Album art">
+    <div id="track-info">
+      <div id="song-name"></div>
+      <div id="artist-name"></div>
+    </div>
+    <div id="lang-badge"></div>
+  </div>
 
-    <script>
-        // This runs immediately when the page loads,
-        // then repeats every 5 seconds
-        async function fetchNowPlaying() {
-            try {
-                const response = await fetch('/now-playing');
-                const data = await response.json();
+  <!-- state screen: login, loading, nothing playing, no lyrics -->
+  <div id="state-screen">
+    <div id="state-icon">🎵</div>
+    <div id="state-title">Welcome to LyricSync</div>
+    <div id="state-subtitle">Connect your Spotify account to see real-time translated lyrics</div>
+    <a id="login-btn" href="/login">Connect with Spotify</a>
+  </div>
 
-                if (data.song) {
-                    document.getElementById('song-title').textContent = data.song;
-                    document.getElementById('artist-name').textContent = data.artist;
-                } else {
-                    document.getElementById('song-title').textContent = 'Nothing playing';
-                }
-            } catch (error) {
-                console.error('Could not reach backend:', error);
-            }
-        }
+  <!-- lyrics area: shown when lyrics are available -->
+  <div id="lyrics-container" style="display:none;">
+    <div id="lyrics-inner"></div>
+  </div>
 
-        // Call it immediately, then every 5 seconds
-        fetchNowPlaying();
-        setInterval(fetchNowPlaying, 5000);
-    </script>
+  <!-- bottom bar: progress bar -->
+  <div id="bottom-bar" style="display:none;">
+    <span id="time-current">0:00</span>
+    <div id="progress-bar-container">
+      <div id="progress-bar"></div>
+    </div>
+    <span id="time-total">0:00</span>
+  </div>
+
+  <script src="/static/app.js"></script>
 
 </body>
-
 </html>

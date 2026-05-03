@@ -1,0 +1,219 @@
+/* ── reset ── */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+  
+  /* ── base ── */
+  body {
+    background: #141414;
+    color: #ffffff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  
+  /* ── top bar ── */
+  #top-bar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px 24px;
+    border-bottom: 0.5px solid #2a2a2a;
+    flex-shrink: 0;
+  }
+  
+  #album-art {
+    width: 44px;
+    height: 44px;
+    border-radius: 6px;
+    object-fit: cover;
+    display: none;
+  }
+  
+  #track-info {
+    flex: 1;
+  }
+  
+  #song-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: #ffffff;
+  }
+  
+  #artist-name {
+    font-size: 12px;
+    color: #aaaaaa;
+    margin-top: 2px;
+  }
+  
+  #lang-badge {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 3px 10px;
+    border-radius: 99px;
+    background: #1a2e1a;
+    color: #1DB954;
+    display: none;
+  }
+  
+  /* ── lyrics area ── */
+  #lyrics-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 40px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    scroll-behavior: smooth;
+  }
+  
+  #lyrics-container::-webkit-scrollbar {
+    display: none;
+  }
+  
+  #lyrics-inner {
+    width: 100%;
+    max-width: 640px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  
+  .lyric-line {
+    padding: 14px 16px;
+    border-radius: 8px;
+    cursor: default;
+    transition: all 0.3s ease;
+    border-left: 2px solid transparent;
+  }
+  
+  .lyric-original {
+    font-size: 16px;
+    color: #ffffff;
+    line-height: 1.5;
+    opacity: 0.3;
+    transition: opacity 0.3s ease, font-size 0.3s ease;
+  }
+  
+  .lyric-translation {
+    font-size: 13px;
+    color: #1DB954;
+    line-height: 1.5;
+    margin-top: 3px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  
+  .lyric-line.active .lyric-original {
+    opacity: 1;
+    font-size: 19px;
+    font-weight: 500;
+  }
+  
+  .lyric-line.active .lyric-translation {
+    opacity: 0.85;
+  }
+  
+  .lyric-line.active {
+    border-left: 2px solid #1DB954;
+    background: #1a1a1a;
+  }
+  
+  .lyric-line.near .lyric-original {
+    opacity: 0.5;
+  }
+  
+  .lyric-line.near .lyric-translation {
+    opacity: 0.4;
+  }
+  
+  /* ── state screens ── */
+  #state-screen {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 24px;
+    text-align: center;
+  }
+  
+  #state-icon {
+    font-size: 48px;
+    margin-bottom: 8px;
+  }
+  
+  #state-title {
+    font-size: 18px;
+    font-weight: 500;
+    color: #ffffff;
+  }
+  
+  #state-subtitle {
+    font-size: 14px;
+    color: #666666;
+    max-width: 300px;
+    line-height: 1.6;
+  }
+  
+  #login-btn {
+    margin-top: 8px;
+    background: #1DB954;
+    color: #000000;
+    border: none;
+    border-radius: 99px;
+    padding: 12px 28px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+  }
+  
+  #login-btn:hover {
+    background: #1ed760;
+  }
+  
+  /* ── bottom bar ── */
+  #bottom-bar {
+    border-top: 0.5px solid #2a2a2a;
+    padding: 10px 24px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  
+  #progress-bar-container {
+    flex: 1;
+    height: 3px;
+    background: #333333;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  
+  #progress-bar {
+    height: 100%;
+    background: #1DB954;
+    border-radius: 2px;
+    width: 0%;
+    transition: width 1s linear;
+  }
+  
+  #time-current {
+    font-size: 11px;
+    color: #888888;
+    min-width: 32px;
+  }
+  
+  #time-total {
+    font-size: 11px;
+    color: #888888;
+    min-width: 32px;
+    text-align: right;
+  }

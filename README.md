@@ -87,7 +87,7 @@ Link to Figma file: https://www.figma.com/design/UoPAiZB3V8ZwUjF9f05Yb2/LyricSyn
 
 ## Project status
 
-🟡 In progress — currently building Layer 2 (Spotify OAuth)
+🟡 In progress — currently building Layer 5 (Getting real time lyrics for language translation)
 
 ---
 

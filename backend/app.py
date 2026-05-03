@@ -4,7 +4,6 @@ from dotenv import load_dotenv
 import os 
 import requests
 import urllib.parse
-import secrets
 
 load_dotenv()
 
@@ -212,7 +211,7 @@ def now_playing():
         'song': track['name'], 
         'artist': ', '.join([a['name'] for a in track['artists']]),
         'album': track['album']['name'],
-        'album_art': track['album']['images'][0]['url'],
+        'album_art': track['album']['images'][0]['url'] if track['album']['images'] else None,
         'progress_ms': data['progress_ms'], # will be used to sync lyrics (original + autotranslations)
         'duration_ms': track['duration_ms'],
         'track_id': track['id'] # will be useful when storing recently translated songs 

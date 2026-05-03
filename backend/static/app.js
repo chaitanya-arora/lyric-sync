@@ -7,7 +7,7 @@ let durationMs = 0
 let isPlaying = false
 
 // sync offset (negative = show lyrics earlier)
-const SYNC_OFFSET = -300
+const SYNC_OFFSET = -200
 
 // ── element refs ──
 const topBar = document.getElementById('top-bar')
@@ -145,7 +145,7 @@ async function fetchNowPlaying() {
     topBar.style.display = 'flex'
     bottomBar.style.display = 'flex'
 
-    progressMs = data.progress_ms
+    progressMs = Math.max(progressMs, data.progress_ms)
     durationMs = data.duration_ms
     updateProgressBar()
 
@@ -188,7 +188,9 @@ async function fetchNowPlaying() {
 
     if (currentLyrics.length > 0) {
       const newIndex = getCurrentLineIndex(currentLyrics, progressMs + SYNC_OFFSET)
-      updateActiveLine(newIndex)
+      if (newIndex >= currentLineIndex) {
+        updateActiveLine(newIndex)
+      }
     }
 
   } catch (error) {
@@ -205,11 +207,13 @@ function tickProgress() {
 
     if (currentLyrics.length > 0) {
       const newIndex = getCurrentLineIndex(currentLyrics, progressMs + SYNC_OFFSET)
-      updateActiveLine(newIndex)
+      if (newIndex >= currentLineIndex) {
+        updateActiveLine(newIndex)
+      }
     }
   }
 }
 
 fetchNowPlaying()
-setInterval(fetchNowPlaying, 1000)
-setInterval(tickProgress, 500)
+setInterval(fetchNowPlaying, 5000)
+setInterval(tickProgress, 1000)

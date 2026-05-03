@@ -16,11 +16,16 @@ SPOTIFY_CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID')
 SPOTIFY_CLIENT_SECRET = os.getenv('SPOTIFY_CLIENT_SECRET')
 SPOTIFY_REDIRECT_URI = os.getenv('SPOTIFY_REDIRECT_URI')
 
+DEEPL_API_KEY = os.getenv('DEEPL_API_KEY')
+DEEPL_API_URL = 'https://api-free.deepl.com/v2/translate'
+
 SPOTIFY_AUTH_URL = 'https://accounts.spotify.com/authorize'
 SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token'
 SPOTIFY_API_URL = 'https://api.spotify.com/v1'
 
 SCOPE = 'user-read-currently-playing'
+
+translation_cache = {}
 
 def parse_lrc(lrc_text):
     lines = []
@@ -59,6 +64,66 @@ def parse_lrc(lrc_text):
             continue
 
     return lines
+
+def fetch_lyrics(song, artist):
+    # First try exact match
+    response = requests.get(
+        'https://lrclib.net/api/get',
+        params={
+            'track_name': song,
+            'artist_name': artist
+        },
+        headers={'User-Agent': 'LyricSync/1.0 (https://github.com/chaitanya-arora/lyric-sync)'}
+    )
+
+    # If exact match fails, fall back to search
+    if response.status_code == 404 or response.status_code != 200:
+        search_response = requests.get(
+            'https://lrclib.net/api/search',
+            params={
+                'track_name': song,
+                'artist_name': artist
+            },
+            headers={'User-Agent': 'LyricSync/1.0 (https://github.com/chaitanya-arora/lyric-sync)'}
+        )
+
+        if search_response.status_code != 200:
+            return {'found': False, 'message': 'No lyrics found for this track'}
+
+        results = search_response.json()
+
+        if not results:
+            return {'found': False, 'message': 'No lyrics found for this track'}
+
+        # Pick the best result — prefer one with synced lyrics
+        best = None
+        for result in results:
+            if result.get('syncedLyrics'):
+                best = result
+                break
+        if not best:
+            best = results[0]
+
+        synced_lyrics = best.get('syncedLyrics')
+        plain_lyrics = best.get('plainLyrics')
+
+    else:
+        data = response.json()
+        synced_lyrics = data.get('syncedLyrics')
+        plain_lyrics = data.get('plainLyrics')
+
+    if synced_lyrics:
+        return {'found': True, 'synced': True, 'lyrics': parse_lrc(synced_lyrics)}
+
+    if plain_lyrics:
+        lines = [
+            {'time_ms': None, 'text': line}
+            for line in plain_lyrics.strip().split('\n')
+            if line.strip()
+        ]
+        return {'found': True, 'synced': False, 'lyrics': lines}
+
+    return {'found': False, 'message': 'No lyrics available for this track'}
 
 @app.route('/')
 def home():
@@ -102,7 +167,7 @@ def callback():
     session['access_token'] = token_data['access_token']
     session['refresh_token'] = token_data['refresh_token']
 
-    return redirect('/me')
+    return redirect('/')
 
 @app.route('/me')
 def me():
@@ -160,55 +225,70 @@ def lyrics():
     if not song or not artist:
         return jsonify({'error': 'song and artist parameters required'}), 400
 
-    response = requests.get(
-        'https://lrclib.net/api/get',
-        params={
-            'track_name': song,
-            'artist_name': artist
-        },
-        headers={'User-Agent': 'LyricSync/1.0 (https://github.com/chaitanya-arora/lyric-sync)'}
+    return jsonify(fetch_lyrics(song, artist))
+
+@app.route('/translate')
+def translate():
+    track_id = request.args.get('track_id')
+    target_lang = request.args.get('target_lang', 'EN')
+
+    if not track_id:
+        return jsonify({'error': 'track_id parameter required'}), 400
+
+    cache_key = f"{track_id}_{target_lang}"
+    if cache_key in translation_cache:
+        return jsonify({
+            'translated': True,
+            'cached': True,
+            'lyrics': translation_cache[cache_key]
+        })
+
+    lyrics_data = fetch_lyrics(
+        request.args.get('song'),
+        request.args.get('artist')
     )
 
-    if response.status_code == 404:
+    if not lyrics_data.get('found'):
         return jsonify({
-            'found': False,
-            'message': 'No lyrics found for this track'
+            'translated': False,
+            'message': lyrics_data.get('message', 'No lyrics found')
         })
 
-    if response.status_code != 200:
+    lyric_lines = lyrics_data['lyrics']
+    texts_to_translate = [line['text'] for line in lyric_lines]
+
+    deepl_response = requests.post(
+        DEEPL_API_URL,
+        headers={'Authorization': f'DeepL-Auth-Key {DEEPL_API_KEY}'},
+        json={
+            'text': texts_to_translate,
+            'target_lang': target_lang
+        }
+    )
+
+    if deepl_response.status_code != 200:
         return jsonify({
-            'found': False,
-            'message': f'LRCLIB error: {response.status_code}'
+            'error': f'DeepL error: {deepl_response.status_code}',
+            'detail': deepl_response.text
         }), 400
 
-    data = response.json()
+    translations = deepl_response.json()['translations']
 
-    synced_lyrics = data.get('syncedLyrics')
-    plain_lyrics = data.get('plainLyrics')
-
-    if synced_lyrics:
-        parsed = parse_lrc(synced_lyrics)
-        return jsonify({
-            'found': True,
-            'synced': True,
-            'lyrics': parsed
+    combined = []
+    for i, line in enumerate(lyric_lines):
+        combined.append({
+            'time_ms': line['time_ms'],
+            'original': line['text'],
+            'translation': translations[i]['text'],
+            'detected_language': translations[i]['detected_source_language']
         })
 
-    if plain_lyrics:
-        lines = [
-            {'time_ms': None, 'text': line}
-            for line in plain_lyrics.strip().split('\n')
-            if line.strip()
-        ]
-        return jsonify({
-            'found': True,
-            'synced': False,
-            'lyrics': lines
-        })
+    translation_cache[cache_key] = combined
 
     return jsonify({
-        'found': False,
-        'message': 'No lyrics available for this track'
+        'translated': True,
+        'cached': False,
+        'lyrics': combined
     })
 
 if __name__ == '__main__':

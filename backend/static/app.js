@@ -188,9 +188,7 @@ async function fetchNowPlaying() {
 
     if (currentLyrics.length > 0) {
       const newIndex = getCurrentLineIndex(currentLyrics, progressMs + SYNC_OFFSET)
-      if (newIndex >= currentLineIndex) {
-        updateActiveLine(newIndex)
-      }
+      updateActiveLine(newIndex)
     }
 
   } catch (error) {
@@ -207,9 +205,7 @@ function tickProgress() {
 
     if (currentLyrics.length > 0) {
       const newIndex = getCurrentLineIndex(currentLyrics, progressMs + SYNC_OFFSET)
-      if (newIndex >= currentLineIndex) {
-        updateActiveLine(newIndex)
-      }
+      updateActiveLine(newIndex)
     }
   }
 }

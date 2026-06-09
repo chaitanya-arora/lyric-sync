@@ -215,5 +215,4 @@ function tickProgress() {
 }
 
 fetchNowPlaying()
-setInterval(fetchNowPlaying, 5000)
-setInterval(tickProgress, 1000)
+setInterval(fetchNowPlaying, 1000)

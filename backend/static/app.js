@@ -145,7 +145,7 @@ async function fetchNowPlaying() {
     topBar.style.display = 'flex'
     bottomBar.style.display = 'flex'
 
-    progressMs = Math.max(progressMs, data.progress_ms)
+    progressMs = data.progress_ms
     durationMs = data.duration_ms
     updateProgressBar()
 

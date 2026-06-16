@@ -22,8 +22,7 @@ SPOTIFY_AUTH_URL = 'https://accounts.spotify.com/authorize'
 SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token'
 SPOTIFY_API_URL = 'https://api.spotify.com/v1'
 
-# added user-read-playback-state and user-modify-playback-state for queue + controls
-SCOPE = 'user-read-currently-playing user-read-playback-state user-modify-playback-state'
+SCOPE = 'user-read-currently-playing user-read-playback-state user-modify-playback-state user-read-recently-played'
 
 translation_cache = {}
 
@@ -252,6 +251,58 @@ def queue():
 
     return jsonify({'queue': queue_items})
 
+@app.route('/context')
+def context():
+    access_token = get_access_token()
+    if not access_token:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    headers = {'Authorization': f'Bearer {access_token}'}
+
+    # fetch queue (next tracks)
+    queue_res = requests.get(
+        f"{SPOTIFY_API_URL}/me/player/queue",
+        headers=headers
+    )
+
+    # fetch recently played (previous tracks)
+    recent_res = requests.get(
+        f"{SPOTIFY_API_URL}/me/player/recently-played?limit=2",
+        headers=headers
+    )
+
+    next_tracks = []
+    if queue_res.status_code == 200:
+        for track in queue_res.json().get('queue', [])[:3]:
+            if track.get('type') != 'track':
+                continue
+            next_tracks.append({
+                'song': track['name'],
+                'artist': ', '.join([a['name'] for a in track['artists']]),
+                'album_art': track['album']['images'][0]['url'] if track['album']['images'] else None,
+                'duration_ms': track['duration_ms'],
+                'track_id': track['id'],
+                'direction': 'next'
+            })
+
+    prev_tracks = []
+    if recent_res.status_code == 200:
+        items = recent_res.json().get('items', [])[:2]
+        for item in reversed(items):
+            track = item['track']
+            prev_tracks.append({
+                'song': track['name'],
+                'artist': ', '.join([a['name'] for a in track['artists']]),
+                'album_art': track['album']['images'][0]['url'] if track['album']['images'] else None,
+                'duration_ms': track['duration_ms'],
+                'track_id': track['id'],
+                'direction': 'previous'
+            })
+
+    return jsonify({
+        'previous': prev_tracks,
+        'next': next_tracks
+    })
 
 @app.route('/playback', methods=['POST'])
 def playback():

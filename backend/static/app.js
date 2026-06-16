@@ -7,6 +7,9 @@ let durationMs = 0
 let isPlaying = false
 let translationEnabled = true
 let lastServerSync = Date.now()
+let lastKnownData = null
+let isLoggedIn = false
+const translation_cache_js = {}
 
 const SYNC_OFFSET = -200
 
@@ -27,23 +30,49 @@ const progressBar = document.getElementById('progress-bar')
 const timeCurrent = document.getElementById('time-current')
 const timeTotal = document.getElementById('time-total')
 
+// ── content panel: only the middle changes ──
+function showContent(type, options = {}) {
+  // type: 'lyrics' | 'message'
+  // options: { icon, title, subtitle, showLogin }
+
+  if (type === 'lyrics') {
+    stateScreen.style.display = 'none'
+    lyricsContainer.style.display = 'flex'
+  } else {
+    lyricsContainer.style.display = 'none'
+    stateScreen.style.display = 'flex'
+    stateIcon.textContent = options.icon || '🎵'
+    stateTitle.textContent = options.title || ''
+    stateSubtitle.textContent = options.subtitle || ''
+    document.getElementById('login-btn').style.display =
+      options.showLogin ? 'inline-flex' : 'none'
+  }
+}
+
+// ── pre-login state: hide bars, show welcome ──
+function showWelcome() {
+  topBar.style.display = 'none'
+  bottomBar.style.display = 'none'
+  stateScreen.style.display = 'flex'
+  lyricsContainer.style.display = 'none'
+  stateIcon.textContent = '🎵'
+  stateTitle.textContent = 'Welcome to LyricSync'
+  stateSubtitle.textContent = 'Connect your Spotify account to see real-time translated lyrics'
+  document.getElementById('login-btn').style.display = 'inline-flex'
+}
+
+// ── post-login: bars always visible ──
+function showBars() {
+  topBar.style.display = 'flex'
+  bottomBar.style.display = 'flex'
+}
+
 // ── helpers ──
 function formatTime(ms) {
   const totalSeconds = Math.floor(ms / 1000)
   const minutes = Math.floor(totalSeconds / 60)
   const seconds = totalSeconds % 60
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
-}
-
-function showState(icon, title, subtitle, showLogin = false) {
-  stateIcon.textContent = icon
-  stateTitle.textContent = title
-  stateSubtitle.textContent = subtitle
-  document.getElementById('login-btn').style.display = showLogin ? 'inline-flex' : 'none'
-  stateScreen.style.display = 'flex'
-  lyricsContainer.style.display = 'none'
-  topBar.style.display = 'none'
-  bottomBar.style.display = 'none'
 }
 
 function getCurrentLineIndex(lyrics, ms) {
@@ -54,7 +83,6 @@ function getCurrentLineIndex(lyrics, ms) {
   return idx
 }
 
-// ── lyrics render ──
 function renderLyrics(lyrics) {
   lyricsInner.innerHTML = ''
   lyrics.forEach((line, index) => {
@@ -90,11 +118,11 @@ function updateActiveLine(index) {
   if (activeLine) activeLine.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
 
-function updateProgressBar() {
-  if (durationMs > 0) {
-    progressBar.style.width = `${Math.min((progressMs / durationMs) * 100, 100)}%`
-    timeCurrent.textContent = formatTime(progressMs)
-    timeTotal.textContent = formatTime(durationMs)
+function updateProgressBar(ms, dur) {
+  if (dur > 0) {
+    progressBar.style.width = `${Math.min((ms / dur) * 100, 100)}%`
+    timeCurrent.textContent = formatTime(ms)
+    timeTotal.textContent = formatTime(dur)
   }
 }
 
@@ -103,11 +131,16 @@ function updatePlayPauseIcon(playing) {
   document.getElementById('pause-icon').style.display = playing ? 'block' : 'none'
 }
 
+function updateTopBar(data) {
+  songName.textContent = data.song
+  artistName.textContent = data.artist
+  if (data.album_art) albumArt.src = data.album_art
+}
+
 function updateBottomBar(data) {
   document.getElementById('bottom-art').src = data.album_art || ''
   document.getElementById('bottom-song').textContent = data.song
   document.getElementById('bottom-artist').textContent = data.artist
-  bottomBar.style.display = 'flex'
 }
 
 // ── translation toggle ──
@@ -123,13 +156,12 @@ function toggleTranslation() {
 // ── playback controls ──
 async function sendPlayback(action) {
   try {
-    await fetch('/playback', {
+    const res = await fetch('/playback', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action })
     })
-    // wait briefly then refresh state
-    setTimeout(fetchNowPlaying, 300)
+    if (res.ok) setTimeout(fetchNowPlaying, 400)
   } catch (e) {
     console.error('Playback error:', e)
   }
@@ -137,28 +169,26 @@ async function sendPlayback(action) {
 
 async function togglePlayPause() {
   const action = isPlaying ? 'pause' : 'play'
-  isPlaying = !isPlaying
-  updatePlayPauseIcon(isPlaying)
   await sendPlayback(action)
 }
 
-// ── queue ──
-async function fetchQueue() {
+// ── context (queue) ──
+async function fetchContext() {
   try {
-    const res = await fetch('/queue')
+    const res = await fetch('/context')
     if (!res.ok) return
     const data = await res.json()
-    renderQueue(data.queue || [])
+    renderContext(data.previous || [], data.next || [])
   } catch (e) {
-    console.error('Queue error:', e)
+    console.error('Context error:', e)
   }
 }
 
-function renderQueue(items) {
+function renderContext(prev, next) {
   const list = document.getElementById('queue-list')
   const dot = document.getElementById('queue-dot')
 
-  if (!items.length) {
+  if (!prev.length && !next.length) {
     list.innerHTML = '<div class="queue-empty">Nothing queued — add songs in Spotify</div>'
     dot.classList.remove('visible')
     return
@@ -167,25 +197,41 @@ function renderQueue(items) {
   dot.classList.add('visible')
   list.innerHTML = ''
 
-  items.forEach((track, i) => {
-    const div = document.createElement('div')
-    div.className = 'queue-item'
-    div.innerHTML = `
-      <div class="queue-num">${i + 1}</div>
-      <div class="queue-thumb">
-        ${track.album_art
-          ? `<img src="${track.album_art}" alt="">`
-          : `<div style="width:100%;height:100%;background:#222;border-radius:4px;"></div>`
-        }
-      </div>
-      <div class="queue-info">
-        <div class="queue-song">${track.song}</div>
-        <div class="queue-artist">${track.artist}</div>
-      </div>
-      <div class="queue-duration">${formatTime(track.duration_ms)}</div>
-    `
-    list.appendChild(div)
-  })
+  if (prev.length) {
+    const prevHeader = document.createElement('div')
+    prevHeader.className = 'queue-section-label'
+    prevHeader.textContent = 'Recently Played'
+    list.appendChild(prevHeader)
+    prev.forEach(track => list.appendChild(buildQueueItem(track, 'prev')))
+  }
+
+  if (next.length) {
+    const nextHeader = document.createElement('div')
+    nextHeader.className = 'queue-section-label'
+    nextHeader.textContent = 'Playing Next'
+    list.appendChild(nextHeader)
+    next.forEach((track, i) => list.appendChild(buildQueueItem(track, 'next', i + 1)))
+  }
+}
+
+function buildQueueItem(track, direction, num) {
+  const div = document.createElement('div')
+  div.className = `queue-item ${direction === 'prev' ? 'queue-item-prev' : ''}`
+  div.innerHTML = `
+    <div class="queue-num">${direction === 'next' ? num : '↩'}</div>
+    <div class="queue-thumb">
+      ${track.album_art
+        ? `<img src="${track.album_art}" alt="">`
+        : `<div style="width:100%;height:100%;background:#222;border-radius:4px;"></div>`
+      }
+    </div>
+    <div class="queue-info">
+      <div class="queue-song">${track.song}</div>
+      <div class="queue-artist">${track.artist}</div>
+    </div>
+    <div class="queue-duration">${formatTime(track.duration_ms)}</div>
+  `
+  return div
 }
 
 // ── coming soon modal ──
@@ -210,79 +256,123 @@ async function fetchNowPlaying() {
   try {
     const response = await fetch('/now-playing')
 
+    // not logged in — show welcome, hide bars
     if (response.redirected && response.url.includes('/login')) {
-      showState('🎵', 'Welcome to LyricSync', 'Connect your Spotify to see real-time translated lyrics', true)
+      showWelcome()
       return
     }
 
     if (!response.ok) {
-      showState('⚠️', 'Something went wrong', 'Could not reach Spotify. Try refreshing.')
+      console.warn('now-playing error:', response.status)
       return
+    }
+
+    // logged in — bars always visible from here
+    if (!isLoggedIn) {
+      isLoggedIn = true
+      showBars()
     }
 
     const data = await response.json()
-    isPlaying = data.playing
 
-    if (!data.playing) {
-      showState('⏸️', 'Nothing playing', 'Play something on Spotify to see lyrics')
+    // ── PAUSED ──
+    if (!data.is_playing && data.song) {
+      isPlaying = false
+      lastKnownData = data
       updatePlayPauseIcon(false)
-      currentTrackId = null
-      currentLyrics = []
+      updateTopBar(data)
+      updateBottomBar(data)
+      updateProgressBar(data.progress_ms, data.duration_ms)
+      // keep whatever is in the content panel — don't change it
       return
     }
 
-    // sync timestamp for local tick
+    // ── NOTHING PLAYING (204 or truly idle) ──
+    if (!data.playing && !data.song) {
+      isPlaying = false
+      updatePlayPauseIcon(false)
+      if (lastKnownData) {
+        // keep last track visible in bars
+        updateTopBar(lastKnownData)
+        updateBottomBar(lastKnownData)
+      }
+      showContent('message', {
+        icon: '⏸️',
+        title: 'Nothing playing',
+        subtitle: 'Play something on Spotify to see lyrics'
+      })
+      return
+    }
+
+    // ── PLAYING ──
+    isPlaying = true
+    lastKnownData = data
     progressMs = data.progress_ms
     durationMs = data.duration_ms
     lastServerSync = Date.now()
 
-    updatePlayPauseIcon(data.is_playing)
-    updateProgressBar()
+    updatePlayPauseIcon(true)
+    updateProgressBar(progressMs, durationMs)
+    updateTopBar(data)
     updateBottomBar(data)
 
-    songName.textContent = data.song
-    artistName.textContent = data.artist
-    if (data.album_art) albumArt.src = data.album_art
-    topBar.style.display = 'flex'
-
-    // new track — fetch lyrics
-    if (data.track_id !== currentTrackId) {
-      currentTrackId = data.track_id
-      currentLyrics = []
-      currentLineIndex = -1
-      langBadge.style.display = 'none'
-
-      showState('⏳', 'Loading lyrics...', `Fetching translation for ${data.song}`)
-
-      const translateRes = await fetch(
-        `/translate?song=${encodeURIComponent(data.song)}&artist=${encodeURIComponent(data.artist)}&track_id=${encodeURIComponent(data.track_id)}&target_lang=EN`
-      )
-      const translateData = await translateRes.json()
-
-      if (!translateData.translated) {
-        showState('🎵', "Couldn't find lyrics yet", "We're working on it! Try another song.")
-        return
+    // same track — just sync the line
+    if (data.track_id === currentTrackId) {
+      if (currentLyrics.length > 0) {
+        updateActiveLine(getCurrentLineIndex(currentLyrics, progressMs + SYNC_OFFSET))
       }
-
-      currentLyrics = translateData.lyrics.filter(line =>
-        line.original.toLowerCase().trim() !== line.translation.toLowerCase().trim()
-      )
-
-      if (currentLyrics.length === 0) {
-        showState('💬', 'Already in English', 'No translation needed for this track.')
-        return
-      }
-
-      const lang = translateData.lyrics[0]?.detected_language || ''
-      if (lang) {
-        langBadge.textContent = `${lang} → ENG`
-        langBadge.style.display = 'block'
-      }
-
-      renderLyrics(currentLyrics)
-      stateScreen.style.display = 'none'
-      lyricsContainer.style.display = 'flex'
+      return
     }
+
+    // ── NEW TRACK ──
+    currentTrackId = data.track_id
+    currentLyrics = []
+    currentLineIndex = -1
+    langBadge.style.display = 'none'
+
+    // show loading in content panel — bars stay put
+    showContent('message', {
+      icon: '⏳',
+      title: 'Loading lyrics...',
+      subtitle: `Fetching translation for ${data.song}`
+    })
+
+    const translateRes = await fetch(
+      `/translate?song=${encodeURIComponent(data.song)}&artist=${encodeURIComponent(data.artist)}&track_id=${encodeURIComponent(data.track_id)}&target_lang=EN`
+    )
+    const translateData = await translateRes.json()
+
+    if (!translateData.translated) {
+      showContent('message', {
+        icon: '🎵',
+        title: "Couldn't find lyrics yet",
+        subtitle: "We're working on it! Try another song."
+      })
+      return
+    }
+
+    currentLyrics = translateData.lyrics.filter(line =>
+      line.original.toLowerCase().trim() !== line.translation.toLowerCase().trim()
+    )
+
+    if (currentLyrics.length === 0) {
+      showContent('message', {
+        icon: '💬',
+        title: 'Already in English',
+        subtitle: 'No translation needed for this track.'
+      })
+      return
+    }
+
+    const lang = translateData.lyrics[0]?.detected_language || ''
+    if (lang) {
+      langBadge.textContent = `${lang} → ENG`
+      langBadge.style.display = 'block'
+      if (currentTrackId) translation_cache_js[currentTrackId] = `${lang} → EN`
+    }
+
+    renderLyrics(currentLyrics)
+    showContent('lyrics')
 
     if (currentLyrics.length > 0) {
       updateActiveLine(getCurrentLineIndex(currentLyrics, progressMs + SYNC_OFFSET))
@@ -290,14 +380,14 @@ async function fetchNowPlaying() {
 
   } catch (err) {
     console.error('Fetch error:', err)
-    showState('⚠️', 'Connection error', 'Is Flask running?')
+    // never wipe the UI on a network error
   }
 }
 
-// ── local progress tick (every 1s, no API call) ──
+// ── local progress tick ──
 function tickProgress() {
   if (!isPlaying || durationMs === 0) return
-  // use elapsed time since last server sync for accuracy
+
   const elapsed = Date.now() - lastServerSync
   const estimated = progressMs + elapsed
   const capped = Math.min(estimated, durationMs)
@@ -312,7 +402,7 @@ function tickProgress() {
 
 // ── kick off ──
 fetchNowPlaying()
-fetchQueue()
+fetchContext()
 setInterval(fetchNowPlaying, 5000)
-setInterval(fetchQueue, 10000)
+setInterval(fetchContext, 10000)
 setInterval(tickProgress, 1000)

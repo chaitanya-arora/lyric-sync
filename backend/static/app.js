@@ -6,6 +6,10 @@ let progressMs = 0
 let durationMs = 0
 let isPlaying = false
 
+let allLibraryItems = []
+let libraryFilter = 'all'
+let libraryExpanded = false
+
 // sync offset (negative = show lyrics earlier)
 const SYNC_OFFSET = -200
 
@@ -38,7 +42,7 @@ function showState(icon, title, subtitle, showLogin = false) {
   stateIcon.textContent = icon
   stateTitle.textContent = title
   stateSubtitle.textContent = subtitle
-  document.getElementById('login-btn').style.display = showLogin ? 'inline-block' : 'none'
+  document.getElementById('login-btn').style.display = showLogin ? 'inline-flex' : 'none'
   stateScreen.style.display = 'flex'
   lyricsContainer.style.display = 'none'
   topBar.style.display = 'none'
@@ -110,6 +114,69 @@ function updateProgressBar() {
   }
 }
 
+// ── library ──
+async function fetchLibrary() {
+  try {
+    const res = await fetch('/library')
+    if (!res.ok) return
+    const data = await res.json()
+    allLibraryItems = data.items || []
+    renderLibrary()
+  } catch (e) {
+    console.error('Library fetch error:', e)
+  }
+}
+
+function filterLibrary(type, btn) {
+  libraryFilter = type
+  libraryExpanded = false
+  document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'))
+  btn.classList.add('active')
+  renderLibrary()
+}
+
+function renderLibrary() {
+  const list = document.getElementById('library-list')
+  const showMoreBtn = document.getElementById('library-show-more')
+  if (!list) return
+
+  const filtered = libraryFilter === 'all'
+    ? allLibraryItems
+    : allLibraryItems.filter(i => i.type === libraryFilter)
+
+  const visible = libraryExpanded ? filtered : filtered.slice(0, 3)
+
+  list.innerHTML = ''
+  visible.forEach(item => {
+    const div = document.createElement('div')
+    div.className = 'library-item'
+    div.innerHTML = `
+      <div class="library-thumb">
+        ${item.image
+          ? `<img src="${item.image}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:4px;">`
+          : `<div style="width:100%;height:100%;background:#2a2a2a;border-radius:4px;"></div>`
+        }
+      </div>
+      <div class="library-info">
+        <div class="library-name">${item.name}</div>
+        <div class="library-meta">${item.type} · ${item.owner}</div>
+      </div>
+    `
+    list.appendChild(div)
+  })
+
+  if (filtered.length > 3) {
+    showMoreBtn.style.display = 'block'
+    showMoreBtn.textContent = libraryExpanded ? 'Show less' : `Show all ${filtered.length}`
+    showMoreBtn.onclick = () => {
+      libraryExpanded = !libraryExpanded
+      renderLibrary()
+    }
+  } else {
+    showMoreBtn.style.display = 'none'
+  }
+}
+
 // ── main fetch loop ──
 async function fetchNowPlaying() {
   try {
@@ -141,7 +208,11 @@ async function fetchNowPlaying() {
     if (data.album_art) {
       albumArt.src = data.album_art
       albumArt.style.display = 'block'
+      document.getElementById('sidebar-art').src = data.album_art
+      document.getElementById('sidebar-player').style.display = 'flex'
     }
+    document.getElementById('sidebar-song').textContent = data.song
+    document.getElementById('sidebar-artist').textContent = data.artist
     topBar.style.display = 'flex'
     bottomBar.style.display = 'flex'
 
@@ -197,18 +268,7 @@ async function fetchNowPlaying() {
   }
 }
 
-// ── progress tick ──
-function tickProgress() {
-  if (isPlaying && progressMs < durationMs) {
-    progressMs += 1000
-    updateProgressBar()
-
-    if (currentLyrics.length > 0) {
-      const newIndex = getCurrentLineIndex(currentLyrics, progressMs + SYNC_OFFSET)
-      updateActiveLine(newIndex)
-    }
-  }
-}
-
+// ── kick off ──
 fetchNowPlaying()
+fetchLibrary()
 setInterval(fetchNowPlaying, 1000)

@@ -1,7 +1,7 @@
 from flask import Flask, redirect, request, session, jsonify, render_template
 from flask_cors import CORS
 from dotenv import load_dotenv
-import os 
+import os
 import requests
 import urllib.parse
 
@@ -22,18 +22,19 @@ SPOTIFY_AUTH_URL = 'https://accounts.spotify.com/authorize'
 SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token'
 SPOTIFY_API_URL = 'https://api.spotify.com/v1'
 
-SCOPE = 'user-read-currently-playing'
+SCOPE = 'user-read-currently-playing user-library-read playlist-read-private'
 
 translation_cache = {}
+
 
 def parse_lrc(lrc_text):
     lines = []
     for line in lrc_text.strip().split('\n'):
         line = line.strip()
-        if not line: 
-            continue 
+        if not line:
+            continue
         if not line.startswith('['):
-            continue # skips any line that isn't a lyric line
+            continue
         try:
             timestamp_end = line.index(']')
             timestamp_str = line[1:timestamp_end]
@@ -43,7 +44,7 @@ def parse_lrc(lrc_text):
                 continue
             if ':' not in timestamp_str:
                 continue
-            
+
             minutes, rest = timestamp_str.split(':', 1)
             seconds = rest.split('.')[0]
             hundredths = rest.split('.')[1] if '.' in rest else '0'
@@ -64,8 +65,8 @@ def parse_lrc(lrc_text):
 
     return lines
 
+
 def fetch_lyrics(song, artist):
-    # First try exact match
     response = requests.get(
         'https://lrclib.net/api/get',
         params={
@@ -75,7 +76,6 @@ def fetch_lyrics(song, artist):
         headers={'User-Agent': 'LyricSync/1.0 (https://github.com/chaitanya-arora/lyric-sync)'}
     )
 
-    # If exact match fails, fall back to search
     if response.status_code == 404 or response.status_code != 200:
         search_response = requests.get(
             'https://lrclib.net/api/search',
@@ -94,7 +94,6 @@ def fetch_lyrics(song, artist):
         if not results:
             return {'found': False, 'message': 'No lyrics found for this track'}
 
-        # Pick the best result — prefer one with synced lyrics
         best = None
         for result in results:
             if result.get('syncedLyrics'):
@@ -129,16 +128,18 @@ def fetch_lyrics(song, artist):
 def home():
     return render_template('index.html')
 
+
 @app.route('/login')
 def login():
-    params= {
-        'client_id': SPOTIFY_CLIENT_ID, 
+    params = {
+        'client_id': SPOTIFY_CLIENT_ID,
         'response_type': 'code',
         'redirect_uri': SPOTIFY_REDIRECT_URI,
         'scope': SCOPE,
     }
     auth_url = f"{SPOTIFY_AUTH_URL}?{urllib.parse.urlencode(params)}"
     return redirect(auth_url)
+
 
 @app.route('/callback')
 def callback():
@@ -147,7 +148,7 @@ def callback():
 
     if error:
         return f"Spotify login error: {error}", 400
-    
+
     if not code:
         return "No code received from Spotify", 400
 
@@ -169,19 +170,24 @@ def callback():
 
     return redirect('/')
 
+
 @app.route('/me')
 def me():
     access_token = session.get('access_token')
 
     if not access_token:
         return redirect('/login')
-    
-    response = requests.get(f"{SPOTIFY_API_URL}/me", headers={'Authorization': f'Bearer {access_token}'})
+
+    response = requests.get(
+        f"{SPOTIFY_API_URL}/me",
+        headers={'Authorization': f'Bearer {access_token}'}
+    )
 
     if response.status_code != 200:
         return f"Spotify API error: {response.status_code} - {response.text}", 400
 
     return jsonify(response.json())
+
 
 @app.route('/now-playing')
 def now_playing():
@@ -190,32 +196,85 @@ def now_playing():
     if not access_token:
         return redirect('/login')
 
-    response = requests.get(f"{SPOTIFY_API_URL}/me/player/currently-playing", headers={'Authorization': f'Bearer {access_token}'})
+    response = requests.get(
+        f"{SPOTIFY_API_URL}/me/player/currently-playing",
+        headers={'Authorization': f'Bearer {access_token}'}
+    )
 
     if response.status_code == 204:
         return jsonify({'playing': False, 'message': 'Nothing is currently playing'})
-    
+
     if response.status_code != 200:
         return f"Spotify API error: {response.status_code} - {response.text}", 400
 
     data = response.json()
 
-    # only focus on tracks for MVP (ignore podcasts, audiobooks, etc.)
     if not data or data.get('currently_playing_type') != 'track':
         return jsonify({'playing': False, 'message': 'No track is playing'})
-    
+
     track = data['item']
 
     return jsonify({
-        'playing': True, 
-        'song': track['name'], 
+        'playing': True,
+        'song': track['name'],
         'artist': ', '.join([a['name'] for a in track['artists']]),
         'album': track['album']['name'],
         'album_art': track['album']['images'][0]['url'] if track['album']['images'] else None,
-        'progress_ms': data['progress_ms'], # will be used to sync lyrics (original + autotranslations)
+        'progress_ms': data['progress_ms'],
         'duration_ms': track['duration_ms'],
-        'track_id': track['id'] # will be useful when storing recently translated songs 
-        })
+        'track_id': track['id']
+    })
+
+
+@app.route('/library')
+def library():
+    access_token = session.get('access_token')
+    if not access_token:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    headers = {'Authorization': f'Bearer {access_token}'}
+
+    playlists_res = requests.get(f"{SPOTIFY_API_URL}/me/playlists?limit=20", headers=headers)
+    albums_res = requests.get(f"{SPOTIFY_API_URL}/me/albums?limit=20", headers=headers)
+    shows_res = requests.get(f"{SPOTIFY_API_URL}/me/shows?limit=20", headers=headers)
+
+    playlists = []
+    if playlists_res.status_code == 200:
+        for item in playlists_res.json().get('items', []):
+            if item:
+                playlists.append({
+                    'name': item['name'],
+                    'type': 'Playlist',
+                    'owner': item['owner']['display_name'],
+                    'image': item['images'][0]['url'] if item.get('images') else None
+                })
+
+    albums = []
+    if albums_res.status_code == 200:
+        for item in albums_res.json().get('items', []):
+            album = item.get('album', {})
+            albums.append({
+                'name': album['name'],
+                'type': 'Album',
+                'owner': ', '.join([a['name'] for a in album.get('artists', [])]),
+                'image': album['images'][0]['url'] if album.get('images') else None
+            })
+
+    shows = []
+    if shows_res.status_code == 200:
+        for item in shows_res.json().get('items', []):
+            show = item.get('show', {})
+            shows.append({
+                'name': show['name'],
+                'type': 'Podcast',
+                'owner': show.get('publisher', ''),
+                'image': show['images'][0]['url'] if show.get('images') else None
+            })
+
+    combined = playlists + albums + shows
+
+    return jsonify({'items': combined})
+
 
 @app.route('/lyrics')
 def lyrics():
@@ -226,6 +285,7 @@ def lyrics():
         return jsonify({'error': 'song and artist parameters required'}), 400
 
     return jsonify(fetch_lyrics(song, artist))
+
 
 @app.route('/translate')
 def translate():
@@ -289,6 +349,7 @@ def translate():
         'cached': False,
         'lyrics': combined
     })
+
 
 if __name__ == '__main__':
     app.run(debug=True)

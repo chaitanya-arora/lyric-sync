@@ -1,219 +1,512 @@
 /* ── reset ── */
 * {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-  }
-  
-  /* ── base ── */
-  body {
-    background: #141414;
-    color: #ffffff;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-  
-  /* ── top bar ── */
-  #top-bar {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding: 16px 24px;
-    border-bottom: 0.5px solid #2a2a2a;
-    flex-shrink: 0;
-  }
-  
-  #album-art {
-    width: 44px;
-    height: 44px;
-    border-radius: 6px;
-    object-fit: cover;
-    display: none;
-  }
-  
-  #track-info {
-    flex: 1;
-  }
-  
-  #song-name {
-    font-size: 14px;
-    font-weight: 500;
-    color: #ffffff;
-  }
-  
-  #artist-name {
-    font-size: 12px;
-    color: #aaaaaa;
-    margin-top: 2px;
-  }
-  
-  #lang-badge {
-    font-size: 11px;
-    font-weight: 500;
-    padding: 3px 10px;
-    border-radius: 99px;
-    background: #1a2e1a;
-    color: #1DB954;
-    display: none;
-  }
-  
-  /* ── lyrics area ── */
-  #lyrics-container {
-    flex: 1;
-    overflow-y: auto;
-    padding: 40px 24px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    scroll-behavior: smooth;
-  }
-  
-  #lyrics-container::-webkit-scrollbar {
-    display: none;
-  }
-  
-  #lyrics-inner {
-    width: 100%;
-    max-width: 640px;
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-  }
-  
-  .lyric-line {
-    padding: 14px 16px;
-    border-radius: 8px;
-    cursor: default;
-    transition: all 0.3s ease;
-    border-left: 2px solid transparent;
-  }
-  
-  .lyric-original {
-    font-size: 16px;
-    color: #ffffff;
-    line-height: 1.5;
-    opacity: 0.3;
-    transition: opacity 0.3s ease, font-size 0.3s ease;
-  }
-  
-  .lyric-translation {
-    font-size: 13px;
-    color: #1DB954;
-    line-height: 1.5;
-    margin-top: 3px;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-  }
-  
-  .lyric-line.active .lyric-original {
-    opacity: 1;
-    font-size: 19px;
-    font-weight: 500;
-  }
-  
-  .lyric-line.active .lyric-translation {
-    opacity: 0.85;
-  }
-  
-  .lyric-line.active {
-    border-left: 2px solid #1DB954;
-    background: #1a1a1a;
-  }
-  
-  .lyric-line.near .lyric-original {
-    opacity: 0.5;
-  }
-  
-  .lyric-line.near .lyric-translation {
-    opacity: 0.4;
-  }
-  
-  /* ── state screens ── */
-  #state-screen {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    padding: 24px;
-    text-align: center;
-  }
-  
-  #state-icon {
-    font-size: 48px;
-    margin-bottom: 8px;
-  }
-  
-  #state-title {
-    font-size: 18px;
-    font-weight: 500;
-    color: #ffffff;
-  }
-  
-  #state-subtitle {
-    font-size: 14px;
-    color: #666666;
-    max-width: 300px;
-    line-height: 1.6;
-  }
-  
-  #login-btn {
-    margin-top: 8px;
-    background: #1DB954;
-    color: #000000;
-    border: none;
-    border-radius: 99px;
-    padding: 12px 28px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    text-decoration: none;
-    display: inline-block;
-  }
-  
-  #login-btn:hover {
-    background: #1ed760;
-  }
-  
-  /* ── bottom bar ── */
-  #bottom-bar {
-    border-top: 0.5px solid #2a2a2a;
-    padding: 10px 24px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-shrink: 0;
-  }
-  
-  #progress-bar-container {
-    flex: 1;
-    height: 3px;
-    background: #333333;
-    border-radius: 2px;
-    overflow: hidden;
-  }
-  
-  #progress-bar {
-    height: 100%;
-    background: #1DB954;
-    border-radius: 2px;
-    width: 0%;
-    transition: width 1s linear;
-  }
-  
-  #time-current {
-    font-size: 11px;
-    color: #888888;
-    min-width: 32px;
-  }
-  
-  #time-total {
-    font-size: 11px;
-    color: #888888;
-    min-width: 32px;
-    text-align: right;
-  }
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* ── base ── */
+body {
+  background: #111111;
+  color: #ffffff;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  height: 100vh;
+  display: flex;
+  overflow: hidden;
+}
+
+/* ─────────────────────────────────────────
+   SIDEBAR
+───────────────────────────────────────── */
+#sidebar {
+  width: 240px;
+  min-width: 240px;
+  height: 100vh;
+  background: #0a0a0a;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 12px 0;
+  border-right: 0.5px solid #1e1e1e;
+  overflow: hidden;
+}
+
+#sidebar-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px 20px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+  letter-spacing: -0.2px;
+}
+
+.sidebar-section {
+  margin-bottom: 24px;
+}
+
+.sidebar-library {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 400;
+  color: #888888;
+  text-decoration: none;
+  transition: color 0.15s, background 0.15s;
+  cursor: pointer;
+}
+
+.sidebar-link:hover {
+  color: #ffffff;
+  background: #1a1a1a;
+}
+
+.sidebar-link.active {
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.sidebar-link svg {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.sidebar-link.active svg {
+  opacity: 1;
+  color: #1DB954;
+}
+
+.sidebar-library-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #666666;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.sidebar-icon-btn {
+  background: none;
+  border: none;
+  color: #555555;
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s;
+}
+
+.sidebar-icon-btn:hover {
+  color: #ffffff;
+}
+
+.sidebar-pills {
+  display: flex;
+  gap: 6px;
+  padding: 0 6px 12px;
+  flex-wrap: wrap;
+}
+
+.pill {
+  background: #1e1e1e;
+  border: none;
+  color: #888888;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 99px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.pill:hover {
+  background: #2a2a2a;
+  color: #cccccc;
+}
+
+.pill.active {
+  background: #ffffff;
+  color: #000000;
+}
+
+.library-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.library-list::-webkit-scrollbar {
+  display: none;
+}
+
+.library-loading {
+  font-size: 12px;
+  color: #444444;
+  padding: 8px 10px;
+}
+
+.library-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.library-item:hover {
+  background: #1a1a1a;
+}
+
+.library-thumb {
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: #2a2a2a;
+}
+
+.library-info {
+  min-width: 0;
+}
+
+.library-name {
+  font-size: 13px;
+  font-weight: 400;
+  color: #dddddd;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.library-meta {
+  font-size: 11px;
+  color: #666666;
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.library-show-more {
+  background: none;
+  border: none;
+  color: #555555;
+  font-size: 12px;
+  padding: 8px 10px;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: color 0.15s;
+  flex-shrink: 0;
+}
+
+.library-show-more:hover {
+  color: #ffffff;
+}
+
+/* sidebar now-playing mini strip */
+#sidebar-player {
+  margin-top: auto;
+  border-top: 0.5px solid #1e1e1e;
+  padding: 12px 8px;
+  display: none;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+#sidebar-art {
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+#sidebar-track {
+  min-width: 0;
+}
+
+#sidebar-song {
+  font-size: 12px;
+  font-weight: 500;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#sidebar-artist {
+  font-size: 11px;
+  color: #777777;
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─────────────────────────────────────────
+   MAIN CONTENT
+───────────────────────────────────────── */
+#main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* ── top bar ── */
+#top-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 28px;
+  border-bottom: 0.5px solid #1e1e1e;
+  flex-shrink: 0;
+  background: #111111;
+}
+
+#album-art {
+  width: 44px;
+  height: 44px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+#track-info {
+  flex: 1;
+  min-width: 0;
+}
+
+#song-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#artist-name {
+  font-size: 12px;
+  color: #888888;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#lang-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 99px;
+  background: #0d2e14;
+  color: #1DB954;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+
+#settings-btn {
+  background: none;
+  border: none;
+  color: #555555;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+
+#settings-btn:hover {
+  color: #ffffff;
+  background: #1e1e1e;
+}
+
+/* ── state screen ── */
+#state-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+}
+
+#state-icon {
+  font-size: 48px;
+  margin-bottom: 4px;
+}
+
+#state-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #ffffff;
+  letter-spacing: -0.3px;
+}
+
+#state-subtitle {
+  font-size: 14px;
+  color: #555555;
+  max-width: 280px;
+  line-height: 1.7;
+}
+
+#login-btn {
+  margin-top: 8px;
+  background: #1DB954;
+  color: #000000;
+  border: none;
+  border-radius: 99px;
+  padding: 12px 28px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.15s, transform 0.1s;
+}
+
+#login-btn:hover {
+  background: #1ed760;
+  transform: scale(1.02);
+}
+
+/* ── lyrics area ── */
+#lyrics-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 48px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  scroll-behavior: smooth;
+}
+
+#lyrics-container::-webkit-scrollbar {
+  display: none;
+}
+
+#lyrics-inner {
+  width: 100%;
+  max-width: 600px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.lyric-line {
+  padding: 12px 16px;
+  border-radius: 0 8px 8px 0;
+  cursor: default;
+  transition: all 0.25s ease;
+  border-left: 2px solid transparent;
+}
+
+.lyric-original {
+  font-size: 16px;
+  color: #ffffff;
+  line-height: 1.6;
+  opacity: 0.2;
+  transition: opacity 0.25s ease, font-size 0.25s ease, font-weight 0.25s ease;
+}
+
+.lyric-translation {
+  font-size: 13px;
+  color: #1DB954;
+  line-height: 1.5;
+  margin-top: 4px;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  font-style: italic;
+}
+
+.lyric-line.active {
+  border-left: 2px solid #1DB954;
+  background: rgba(29, 185, 84, 0.06);
+}
+
+.lyric-line.active .lyric-original {
+  opacity: 1;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.lyric-line.active .lyric-translation {
+  opacity: 0.9;
+}
+
+.lyric-line.near .lyric-original {
+  opacity: 0.45;
+}
+
+.lyric-line.near .lyric-translation {
+  opacity: 0.3;
+}
+
+/* ── bottom bar ── */
+#bottom-bar {
+  border-top: 0.5px solid #1e1e1e;
+  padding: 12px 28px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  background: #111111;
+}
+
+#progress-bar-container {
+  flex: 1;
+  height: 3px;
+  background: #2a2a2a;
+  border-radius: 2px;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+#progress-bar {
+  height: 100%;
+  background: #1DB954;
+  border-radius: 2px;
+  width: 0%;
+  transition: width 1s linear;
+}
+
+#time-current,
+#time-total {
+  font-size: 11px;
+  color: #555555;
+  min-width: 32px;
+  font-variant-numeric: tabular-nums;
+}
+
+#time-total {
+  text-align: right;
+}

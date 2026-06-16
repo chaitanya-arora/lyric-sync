@@ -1,46 +1,169 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LyricSync</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0e0e0f;
+      color: #f0ede8;
+      font-family: 'DM Sans', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .card {
+      width: 320px;
+      background: #1a1a1c;
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+
+    .album-art {
+      width: 100%;
+      aspect-ratio: 1;
+      background: #111;
+      object-fit: cover;
+      display: block;
+    }
+
+    .info {
+      padding: 20px;
+    }
+
+    .status {
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #1ed760;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #1ed760;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    .song { font-size: 18px; font-weight: 500; margin-bottom: 4px; }
+    .artist { font-size: 13px; opacity: 0.45; margin-bottom: 2px; }
+    .album { font-size: 12px; opacity: 0.3; }
+
+    .progress-wrap { padding: 0 20px 20px; }
+
+    .times {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      opacity: 0.35;
+      margin-bottom: 6px;
+    }
+
+    .track {
+      height: 2px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+
+    .fill {
+      height: 100%;
+      background: #1ed760;
+      border-radius: 99px;
+      width: 0%;
+      transition: width 1s linear;
+    }
+  </style>
 </head>
+
 <body>
-
-  <!-- top bar: album art + track info + language badge -->
-  <div id="top-bar" style="display:none;">
-    <img id="album-art" src="" alt="Album art">
-    <div id="track-info">
-      <div id="song-name"></div>
-      <div id="artist-name"></div>
+  <div class="card">
+    <img class="album-art" id="album-art" src="" alt="">
+    <div class="info">
+      <div class="status"><div class="dot"></div><span id="status">Connecting…</span></div>
+      <div class="song" id="song">–</div>
+      <div class="artist" id="artist"></div>
+      <div class="album" id="album"></div>
     </div>
-    <div id="lang-badge"></div>
-  </div>
-
-  <!-- state screen: login, loading, nothing playing, no lyrics -->
-  <div id="state-screen">
-    <div id="state-icon">🎵</div>
-    <div id="state-title">Welcome to LyricSync</div>
-    <div id="state-subtitle">Connect your Spotify account to see real-time translated lyrics</div>
-    <a id="login-btn" href="/login">Connect with Spotify</a>
-  </div>
-
-  <!-- lyrics area: shown when lyrics are available -->
-  <div id="lyrics-container" style="display:none;">
-    <div id="lyrics-inner"></div>
-  </div>
-
-  <!-- bottom bar: progress bar -->
-  <div id="bottom-bar" style="display:none;">
-    <span id="time-current">0:00</span>
-    <div id="progress-bar-container">
-      <div id="progress-bar"></div>
+    <div class="progress-wrap">
+      <div class="times">
+        <span id="current">0:00</span>
+        <span id="total">0:00</span>
+      </div>
+      <div class="track"><div class="fill" id="fill"></div></div>
     </div>
-    <span id="time-total">0:00</span>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script>
+    let progressMs = 0, durationMs = 0, isPlaying = false, lastFetch = Date.now(), tick = null;
 
+    function fmt(ms) {
+      const s = Math.floor(ms / 1000);
+      return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
+    }
+
+    function updateBar(current, total) {
+      document.getElementById('fill').style.width = total ? (current / total * 100) + '%' : '0%';
+      document.getElementById('current').textContent = fmt(current);
+      document.getElementById('total').textContent = fmt(total);
+    }
+
+    function startTick() {
+      clearInterval(tick);
+      tick = setInterval(() => {
+        if (isPlaying) updateBar(Math.min(progressMs + Date.now() - lastFetch, durationMs), durationMs);
+      }, 500);
+    }
+
+    async function fetchNowPlaying() {
+      try {
+        const data = await fetch('/now-playing').then(r => r.json());
+        lastFetch = Date.now();
+
+        if (data.song) {
+          isPlaying = data.playing;
+          progressMs = data.progress_ms || 0;
+          durationMs = data.duration_ms || 0;
+          document.getElementById('status').textContent = isPlaying ? 'Now Playing' : 'Paused';
+          document.getElementById('song').textContent = data.song;
+          document.getElementById('artist').textContent = data.artist;
+          document.getElementById('album').textContent = data.album || '';
+          document.getElementById('album-art').src = data.album_art || '';
+          updateBar(progressMs, durationMs);
+          startTick();
+        } else {
+          isPlaying = false;
+          document.getElementById('status').textContent = 'Nothing playing';
+          document.getElementById('song').textContent = '–';
+          document.getElementById('artist').textContent = '';
+          document.getElementById('album').textContent = '';
+          document.getElementById('album-art').src = '';
+          updateBar(0, 0);
+        }
+      } catch (e) {
+        document.getElementById('status').textContent = 'Connecting…';
+      }
+    }
+
+    fetchNowPlaying();
+    setInterval(fetchNowPlaying, 5000);
+  </script>
 </body>
 </html>

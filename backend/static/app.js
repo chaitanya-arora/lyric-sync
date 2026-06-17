@@ -17,7 +17,15 @@ const translation_cache_js = {}
 let pausedAt = null
 let pauseTimerFired = false
 
-const SYNC_OFFSET = -200
+// ── prefetch: next-track lyrics ──
+let prefetchedTrackId = null     // track_id we already prefetched
+let isPrefetching = false        // guard against duplicate prefetch calls
+let prefetchTriggered = false    // only trigger once per track
+
+const SYNC_OFFSET_BASE = -500   // base lead in ms — accounts for render + network lag
+let dynamicOffset = 0           // auto-corrected drift measured each poll cycle
+let lastPollProgressMs = 0      // server progress_ms from last poll
+let lastPollTime = 0            // Date.now() when last poll completed
 
 // ── element refs ──
 const topBar = document.getElementById('top-bar')
@@ -453,6 +461,37 @@ document.getElementById('coming-soon-modal').addEventListener('click', function(
 })
 
 // ─────────────────────────────────────────
+//  PREFETCH NEXT TRACK
+// ─────────────────────────────────────────
+
+async function prefetchNextTrack() {
+  if (isPrefetching) return
+  try {
+    const res = await fetch('/context')
+    if (!res.ok) return
+    const data = await res.json()
+
+    const next = data.next?.[0]
+    if (!next || !next.song || !next.artist || !next.track_id) return
+    if (next.track_id === prefetchedTrackId) return  // already done
+    if (next.track_id === currentTrackId) return     // same as current
+
+    isPrefetching = true
+    prefetchedTrackId = next.track_id
+    console.log(`[prefetch] Starting: ${next.song} — ${next.artist}`)
+
+    const url = `/translate?song=${encodeURIComponent(next.song)}&artist=${encodeURIComponent(next.artist)}&track_id=${encodeURIComponent(next.track_id)}&target_lang=EN`
+    const r = await fetch(url)
+    const d = await r.json()
+    console.log(`[prefetch] Done: ${d.cached ? 'cache hit' : 'freshly translated'} — ${next.song}`)
+  } catch (e) {
+    console.warn('[prefetch] error:', e)
+  } finally {
+    isPrefetching = false
+  }
+}
+
+// ─────────────────────────────────────────
 //  MAIN FETCH LOOP
 // ─────────────────────────────────────────
 
@@ -516,9 +555,25 @@ async function fetchNowPlaying() {
     // ── PLAYING ──
     isPlaying = true
     lastKnownData = data
-    progressMs = data.progress_ms
     durationMs = data.duration_ms
     lastServerSync = Date.now()
+
+    // ── dynamic drift correction ──
+    // Compare where we predicted the song would be (via local tick)
+    // vs where Spotify actually says it is — the gap is our drift.
+    // We blend it in gradually (30% weight) to avoid jumpy corrections.
+    if (lastPollTime > 0 && data.track_id === currentTrackId) {
+      const expectedProgress = lastPollProgressMs + (Date.now() - lastPollTime)
+      const actualProgress = data.progress_ms
+      const measuredDrift = actualProgress - expectedProgress
+      // only correct if drift is significant (>100ms) and not a seek/skip jump (>3s)
+      if (Math.abs(measuredDrift) > 100 && Math.abs(measuredDrift) < 3000) {
+        dynamicOffset = Math.round(dynamicOffset * 0.7 + measuredDrift * 0.3)
+      }
+    }
+    lastPollProgressMs = data.progress_ms
+    lastPollTime = Date.now()
+    progressMs = data.progress_ms
 
     // reset pause timer
     pausedAt = null
@@ -528,6 +583,14 @@ async function fetchNowPlaying() {
     updateProgressBar(progressMs, durationMs)
     updateTopBar(data)
     updateBottomBar(data)
+
+    // ── 60s-before-end prefetch ──
+    // Fire once per track when there's 60s or less remaining
+    const remaining = durationMs - progressMs
+    if (remaining > 0 && remaining <= 60000 && !prefetchTriggered) {
+      prefetchTriggered = true
+      prefetchNextTrack()
+    }
 
     // if welcome was showing (paused > 12s), fade it out and restore everything
     if (!welcomeScreen.classList.contains('hidden') && welcomeScreen.style.display !== 'none') {
@@ -540,7 +603,7 @@ async function fetchNowPlaying() {
           stateScreen.style.display = 'none'
           // re-sync to current position
           if (currentLyrics.length > 0) {
-            updateActiveLine(getCurrentLineIndex(currentLyrics, progressMs + SYNC_OFFSET))
+            updateActiveLine(getCurrentLineIndex(currentLyrics, progressMs + SYNC_OFFSET_BASE + dynamicOffset))
           }
         } else if (currentContentState) {
           // loading / no-lyrics / english — stateScreen was showing
@@ -553,7 +616,7 @@ async function fetchNowPlaying() {
     // same track — just sync line
     if (data.track_id === currentTrackId) {
       if (currentLyrics.length > 0) {
-        updateActiveLine(getCurrentLineIndex(currentLyrics, progressMs + SYNC_OFFSET))
+        updateActiveLine(getCurrentLineIndex(currentLyrics, progressMs + SYNC_OFFSET_BASE + dynamicOffset))
       }
       return
     }
@@ -564,6 +627,9 @@ async function fetchNowPlaying() {
     currentLineIndex = -1
     currentContentState = 'loading'
     langBadge.style.display = 'none'
+    prefetchTriggered = false   // reset so 60s trigger fires for this track
+    dynamicOffset = 0           // reset drift for new track
+    prefetchNextTrack()         // immediately prefetch next-in-queue in case of skip
 
     showContent('message', {
       icon: '⏳',
@@ -612,7 +678,7 @@ async function fetchNowPlaying() {
     showContent('lyrics')
 
     if (currentLyrics.length > 0) {
-      updateActiveLine(getCurrentLineIndex(currentLyrics, progressMs + SYNC_OFFSET))
+      updateActiveLine(getCurrentLineIndex(currentLyrics, progressMs + SYNC_OFFSET_BASE + dynamicOffset))
     }
 
   } catch (err) {
@@ -637,7 +703,7 @@ function tickProgress() {
   timeCurrent.textContent = formatTime(capped)
 
   if (currentLyrics.length > 0) {
-    updateActiveLine(getCurrentLineIndex(currentLyrics, capped + SYNC_OFFSET))
+    updateActiveLine(getCurrentLineIndex(currentLyrics, capped + SYNC_OFFSET_BASE + dynamicOffset))
   }
 }
 

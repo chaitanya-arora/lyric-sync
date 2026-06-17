@@ -87,21 +87,38 @@ function resizeCanvas() {
 }
 
 function initFloats() {
-  floats = []
+  // Remove any existing DOM floats
+  document.querySelectorAll('.welcome-float').forEach(el => el.remove())
+
   const count = 28
+  const container = welcomeScreen
+
   for (let i = 0; i < count; i++) {
     const item = LANG_ITEMS[i % LANG_ITEMS.length]
-    floats.push({
-      x: Math.random() * canvas.width,
-      y: Math.random() * canvas.height + canvas.height * 0.2,
-      size: 18 + Math.random() * 16,
-      opacity: 0.18 + Math.random() * 0.20,
-      speed: 0.18 + Math.random() * 0.22,
-      drift: (Math.random() - 0.5) * 0.3,
-      text: item.text,
-      hue: item.hue,
-      phase: Math.random() * Math.PI * 2,
-    })
+    const el = document.createElement('div')
+    el.className = 'welcome-float'
+
+    const startX = Math.random() * 100   // vw %
+    const startY = 100 + Math.random() * 40  // start below viewport
+    const size = 18 + Math.random() * 16
+    const opacity = 0.25 + Math.random() * 0.30
+    const duration = 8 + Math.random() * 10  // seconds to float up
+    const delay = -(Math.random() * duration) // stagger start
+
+    el.textContent = item.text
+    el.style.cssText = `
+      position: absolute;
+      left: ${startX}%;
+      top: ${startY}%;
+      font-size: ${size}px;
+      opacity: ${opacity};
+      color: hsla(${item.hue}, 80%, 70%, 1);
+      pointer-events: none;
+      z-index: 1;
+      animation: floatUp ${duration}s ${delay}s linear infinite;
+      filter: drop-shadow(0 0 6px hsla(${item.hue}, 80%, 60%, 0.4));
+    `
+    container.appendChild(el)
   }
 }
 
@@ -127,34 +144,15 @@ function drawOrbs(t) {
 }
 
 function drawFloats(t) {
-  floats.forEach(f => {
-    // drift upward, reset when off top
-    f.y -= f.speed
-    f.x += f.drift
-    if (f.y < -40) {
-      f.y = canvas.height + 20
-      f.x = Math.random() * canvas.width
-    }
-
-    // gentle opacity pulse
-    const pulse = 0.7 + 0.3 * Math.sin(t * 0.001 + f.phase)
-    const alpha = f.opacity * pulse
-
-    ctx.save()
-    ctx.font = `${f.size}px 'DM Sans', sans-serif`
-    ctx.fillStyle = `hsla(${f.hue}, 70%, 70%, ${alpha})`
-    ctx.fillText(f.text, f.x, f.y)
-    ctx.restore()
-  })
+  // Floats are now DOM elements animated via CSS — nothing to draw on canvas
 }
 
 function animateWelcome(t) {
   if (!isAnimating) return
   animFrame = requestAnimationFrame(animateWelcome)
-
   ctx.clearRect(0, 0, canvas.width, canvas.height)
   drawOrbs(t)
-  drawFloats(t)
+  // floats are DOM-based, no canvas draw needed
 }
 
 function startWelcomeAnimation() {
@@ -171,6 +169,7 @@ function stopWelcomeAnimation() {
     cancelAnimationFrame(animFrame)
     animFrame = null
   }
+  document.querySelectorAll('.welcome-float').forEach(el => el.remove())
 }
 
 window.addEventListener('resize', () => {
@@ -196,10 +195,12 @@ function showWelcomeScreen() {
 
   if (isLoggedIn) {
     welcomeLoginBtn.classList.add('hidden')
+    document.getElementById('welcome-tagline').textContent = "You're connected!"
     document.getElementById('welcome-desc').textContent =
-      'To get started, play a song in Spotify!'
+      'Play a song in Spotify to see real-time translated lyrics.'
   } else {
     welcomeLoginBtn.classList.remove('hidden')
+    document.getElementById('welcome-tagline').textContent = 'Music, understood.'
     document.getElementById('welcome-desc').textContent =
       'Connect Spotify and LyricSync shows you real-time translated lyrics — line by line, in sync, as you listen. No pausing. No Googling. Just music and meaning, together.'
   }
@@ -234,22 +235,9 @@ function showContent(type, options = {}) {
   }
 }
 
-// post-login: fade out welcome, show bars + prompt to play
+// post-login: refresh welcome screen card now that isLoggedIn is true
 function showBars() {
-  if (!welcomeScreen.classList.contains('hidden') && welcomeScreen.style.display !== 'none') {
-    hideWelcomeScreen(() => {
-      topBar.style.display = 'none'
-      bottomBar.style.display = 'none'
-      // show "play a song" prompt until first track detected
-      stateScreen.style.display = 'flex'
-      stateIcon.textContent = '🎵'
-      stateTitle.textContent = "You're connected!"
-      stateSubtitle.textContent = 'Play a song in Spotify to see real-time translated lyrics.'
-    })
-  } else {
-    topBar.style.display = 'flex'
-    bottomBar.style.display = 'flex'
-  }
+  showWelcomeScreen()
 }
 
 // ─────────────────────────────────────────

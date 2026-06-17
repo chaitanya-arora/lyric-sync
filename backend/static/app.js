@@ -13,6 +13,10 @@ let isFetching = false
 let currentContentState = null // 'lyrics' | 'no-lyrics' | 'english' | 'loading' | null
 const translation_cache_js = {}
 
+// ── pause > 60s → welcome screen ──
+let pausedAt = null
+let pauseTimerFired = false
+
 const SYNC_OFFSET = -200
 
 // ── element refs ──
@@ -31,8 +35,192 @@ const bottomBar = document.getElementById('bottom-bar')
 const progressBar = document.getElementById('progress-bar')
 const timeCurrent = document.getElementById('time-current')
 const timeTotal = document.getElementById('time-total')
+const welcomeScreen = document.getElementById('welcome-screen')
+const welcomeLoginBtn = document.getElementById('welcome-login-btn')
 
-// ── content panel: only the middle changes ──
+// ─────────────────────────────────────────
+//  WELCOME SCREEN CANVAS ANIMATION
+// ─────────────────────────────────────────
+
+const canvas = document.getElementById('welcome-canvas')
+const ctx = canvas.getContext('2d')
+
+// Floating elements — flag emojis + music notes, each with a colour hue
+// Flags chosen for breadth of world music genres LyricSync supports
+const LANG_ITEMS = [
+  { text: '🇫🇷', hue: 355 },  // France   — coral red
+  { text: '🇮🇳', hue: 42  },  // India    — amber
+  { text: '🇰🇷', hue: 22  },  // Korea    — orange
+  { text: '🇪🇸', hue: 82  },  // Spain    — lime
+  { text: '🇧🇷', hue: 168 },  // Brazil   — teal
+  { text: '🇯🇵', hue: 235 },  // Japan    — periwinkle
+  { text: '🇲🇽', hue: 315 },  // Mexico   — magenta
+  { text: '🇮🇹', hue: 335 },  // Italy    — hot pink
+  { text: '🇩🇪', hue: 200 },  // Germany  — steel blue
+  { text: '🇨🇳', hue: 272 },  // China    — purple
+  { text: '🇵🇹', hue: 100 },  // Portugal — yellow-green
+  { text: '🇸🇦', hue: 130 },  // Arabia   — green
+  { text: '♪',   hue: 142 },  // Note     — Spotify green
+  { text: '♫',   hue: 142 },  // Note     — Spotify green
+  { text: '♩',   hue: 60  },  // Note     — warm yellow
+  { text: '♬',   hue: 142 },  // Note     — Spotify green
+]
+
+// Aura orbs — brighter, more vivid than before
+const ORBS = [
+  { x: 0.15, y: 0.25, r: 0.40, hue: 355, speed: 0.00008 }, // coral red
+  { x: 0.82, y: 0.58, r: 0.35, hue: 272, speed: 0.00006 }, // purple
+  { x: 0.50, y: 0.88, r: 0.33, hue: 168, speed: 0.00010 }, // teal
+  { x: 0.74, y: 0.18, r: 0.28, hue: 42,  speed: 0.00007 }, // amber
+  { x: 0.28, y: 0.72, r: 0.25, hue: 315, speed: 0.00009 }, // magenta
+  { x: 0.60, y: 0.40, r: 0.20, hue: 142, speed: 0.00011 }, // green
+]
+
+let floats = []
+let orbPhase = 0
+let animFrame = null
+let isAnimating = false
+
+function resizeCanvas() {
+  canvas.width = canvas.offsetWidth
+  canvas.height = canvas.offsetHeight
+}
+
+function initFloats() {
+  floats = []
+  const count = 28
+  for (let i = 0; i < count; i++) {
+    const item = LANG_ITEMS[i % LANG_ITEMS.length]
+    floats.push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height + canvas.height * 0.2,
+      size: 18 + Math.random() * 16,
+      opacity: 0.18 + Math.random() * 0.20,
+      speed: 0.18 + Math.random() * 0.22,
+      drift: (Math.random() - 0.5) * 0.3,
+      text: item.text,
+      hue: item.hue,
+      phase: Math.random() * Math.PI * 2,
+    })
+  }
+}
+
+function drawOrbs(t) {
+  ORBS.forEach((orb, i) => {
+    // slow Lissajous drift
+    const dx = Math.sin(t * orb.speed + i * 1.3) * 0.12
+    const dy = Math.cos(t * orb.speed * 0.7 + i * 2.1) * 0.09
+    const cx = (orb.x + dx) * canvas.width
+    const cy = (orb.y + dy) * canvas.height
+    const radius = orb.r * Math.min(canvas.width, canvas.height)
+
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius)
+    grad.addColorStop(0,   `hsla(${orb.hue}, 90%, 65%, 0.32)`)
+    grad.addColorStop(0.5, `hsla(${orb.hue}, 80%, 55%, 0.14)`)
+    grad.addColorStop(1,   `hsla(${orb.hue}, 70%, 40%, 0)`)
+
+    ctx.fillStyle = grad
+    ctx.beginPath()
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2)
+    ctx.fill()
+  })
+}
+
+function drawFloats(t) {
+  floats.forEach(f => {
+    // drift upward, reset when off top
+    f.y -= f.speed
+    f.x += f.drift
+    if (f.y < -40) {
+      f.y = canvas.height + 20
+      f.x = Math.random() * canvas.width
+    }
+
+    // gentle opacity pulse
+    const pulse = 0.7 + 0.3 * Math.sin(t * 0.001 + f.phase)
+    const alpha = f.opacity * pulse
+
+    ctx.save()
+    ctx.font = `${f.size}px 'DM Sans', sans-serif`
+    ctx.fillStyle = `hsla(${f.hue}, 70%, 70%, ${alpha})`
+    ctx.fillText(f.text, f.x, f.y)
+    ctx.restore()
+  })
+}
+
+function animateWelcome(t) {
+  if (!isAnimating) return
+  animFrame = requestAnimationFrame(animateWelcome)
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height)
+  drawOrbs(t)
+  drawFloats(t)
+}
+
+function startWelcomeAnimation() {
+  if (isAnimating) return
+  resizeCanvas()
+  initFloats()
+  isAnimating = true
+  requestAnimationFrame(animateWelcome)
+}
+
+function stopWelcomeAnimation() {
+  isAnimating = false
+  if (animFrame) {
+    cancelAnimationFrame(animFrame)
+    animFrame = null
+  }
+}
+
+window.addEventListener('resize', () => {
+  if (isAnimating) {
+    resizeCanvas()
+    initFloats()
+  }
+})
+
+// ─────────────────────────────────────────
+//  WELCOME SCREEN SHOW / HIDE
+// ─────────────────────────────────────────
+
+function showWelcomeScreen() {
+  topBar.style.display = 'none'
+  bottomBar.style.display = 'none'
+  stateScreen.style.display = 'none'
+  lyricsContainer.style.display = 'none'
+
+  welcomeScreen.classList.remove('fade-out', 'hidden')
+  welcomeScreen.style.display = 'flex'
+  welcomeScreen.style.opacity = '1'
+
+  if (isLoggedIn) {
+    welcomeLoginBtn.classList.add('hidden')
+    document.getElementById('welcome-desc').textContent =
+      'To get started, play a song in Spotify!'
+  } else {
+    welcomeLoginBtn.classList.remove('hidden')
+    document.getElementById('welcome-desc').textContent =
+      'Connect Spotify and LyricSync shows you real-time translated lyrics — line by line, in sync, as you listen. No pausing. No Googling. Just music and meaning, together.'
+  }
+
+  startWelcomeAnimation()
+}
+
+function hideWelcomeScreen(callback) {
+  welcomeScreen.classList.add('fade-out')
+  setTimeout(() => {
+    welcomeScreen.classList.add('hidden')
+    welcomeScreen.style.display = 'none'
+    stopWelcomeAnimation()
+    if (callback) callback()
+  }, 300)
+}
+
+// ─────────────────────────────────────────
+//  CONTENT PANEL HELPERS
+// ─────────────────────────────────────────
+
 function showContent(type, options = {}) {
   if (type === 'lyrics') {
     stateScreen.style.display = 'none'
@@ -43,30 +231,31 @@ function showContent(type, options = {}) {
     stateIcon.textContent = options.icon || '🎵'
     stateTitle.textContent = options.title || ''
     stateSubtitle.textContent = options.subtitle || ''
-    document.getElementById('login-btn').style.display =
-      options.showLogin ? 'inline-flex' : 'none'
   }
 }
 
-// ── pre-login state: hide bars, show welcome ──
-function showWelcome() {
-  topBar.style.display = 'none'
-  bottomBar.style.display = 'none'
-  stateScreen.style.display = 'flex'
-  lyricsContainer.style.display = 'none'
-  stateIcon.textContent = '🎵'
-  stateTitle.textContent = 'Welcome to LyricSync'
-  stateSubtitle.textContent = 'Connect your Spotify account to see real-time translated lyrics'
-  document.getElementById('login-btn').style.display = 'inline-flex'
-}
-
-// ── post-login: bars always visible ──
+// post-login: fade out welcome, show bars + prompt to play
 function showBars() {
-  topBar.style.display = 'flex'
-  bottomBar.style.display = 'flex'
+  if (!welcomeScreen.classList.contains('hidden') && welcomeScreen.style.display !== 'none') {
+    hideWelcomeScreen(() => {
+      topBar.style.display = 'none'
+      bottomBar.style.display = 'none'
+      // show "play a song" prompt until first track detected
+      stateScreen.style.display = 'flex'
+      stateIcon.textContent = '🎵'
+      stateTitle.textContent = "You're connected!"
+      stateSubtitle.textContent = 'Play a song in Spotify to see real-time translated lyrics.'
+    })
+  } else {
+    topBar.style.display = 'flex'
+    bottomBar.style.display = 'flex'
+  }
 }
 
-// ── helpers ──
+// ─────────────────────────────────────────
+//  HELPERS
+// ─────────────────────────────────────────
+
 function formatTime(ms) {
   const totalSeconds = Math.floor(ms / 1000)
   const minutes = Math.floor(totalSeconds / 60)
@@ -154,7 +343,10 @@ function updateBottomBar(data) {
   document.getElementById('bottom-artist').textContent = data.artist
 }
 
-// ── translation toggle ──
+// ─────────────────────────────────────────
+//  TRANSLATION TOGGLE
+// ─────────────────────────────────────────
+
 function toggleTranslation() {
   translationEnabled = !translationEnabled
   const toggle = document.getElementById('toggle-switch')
@@ -164,7 +356,10 @@ function toggleTranslation() {
   })
 }
 
-// ── playback controls ──
+// ─────────────────────────────────────────
+//  PLAYBACK CONTROLS
+// ─────────────────────────────────────────
+
 async function sendPlayback(action) {
   try {
     const res = await fetch('/playback', {
@@ -183,7 +378,10 @@ async function togglePlayPause() {
   await sendPlayback(action)
 }
 
-// ── context (queue) ──
+// ─────────────────────────────────────────
+//  CONTEXT (QUEUE)
+// ─────────────────────────────────────────
+
 async function fetchContext() {
   if (!isLoggedIn) return
   try {
@@ -246,7 +444,10 @@ function buildQueueItem(track, direction, num) {
   return div
 }
 
-// ── coming soon modal ──
+// ─────────────────────────────────────────
+//  COMING SOON MODAL
+// ─────────────────────────────────────────
+
 function showModal() {
   document.getElementById('coming-soon-modal').style.display = 'flex'
 }
@@ -263,7 +464,10 @@ document.getElementById('coming-soon-modal').addEventListener('click', function(
   if (e.target === this) closeModal()
 })
 
-// ── main fetch loop ──
+// ─────────────────────────────────────────
+//  MAIN FETCH LOOP
+// ─────────────────────────────────────────
+
 async function fetchNowPlaying() {
   if (isFetching) return
   isFetching = true
@@ -272,7 +476,7 @@ async function fetchNowPlaying() {
     const response = await fetch('/now-playing')
 
     if (response.redirected && response.url.includes('/login')) {
-      showWelcome()
+      showWelcomeScreen()
       return
     }
 
@@ -289,34 +493,35 @@ async function fetchNowPlaying() {
 
     const data = await response.json()
 
-    // ── PAUSED ──
-    if (!data.is_playing && data.song) {
+    // ── PAUSED or NOTHING PLAYING ──
+    // Freeze everything exactly as-is. After 60s, show the welcome screen.
+    if ((!data.is_playing && data.song) || (!data.playing && !data.song)) {
       isPlaying = false
-      lastKnownData = data
       updatePlayPauseIcon(false)
-      updateTopBar(data)
-      updateBottomBar(data)
-      updateProgressBar(data.progress_ms, data.duration_ms)
-      // keep whatever is in the content panel — don't change it
-      return
-    }
 
-    // ── NOTHING PLAYING ──
-    if (!data.playing && !data.song) {
-      isPlaying = false
-      updatePlayPauseIcon(false)
-      if (lastKnownData) {
+      // freeze bars at current track
+      if (data.song) {
+        lastKnownData = data
+        updateTopBar(data)
+        updateBottomBar(data)
+        updateProgressBar(data.progress_ms, data.duration_ms)
+      } else if (lastKnownData) {
         updateTopBar(lastKnownData)
         updateBottomBar(lastKnownData)
       }
-      // only show "nothing playing" if we're not already showing a track-specific state
-      if (!currentContentState || currentContentState === 'lyrics') {
-        showContent('message', {
-          icon: '⏸️',
-          title: 'Nothing playing',
-          subtitle: 'Play something on Spotify to see lyrics'
-        })
+
+      // start 60s timer on first paused tick
+      if (!pausedAt) {
+        pausedAt = Date.now()
+        pauseTimerFired = false
       }
+
+      if (!pauseTimerFired && Date.now() - pausedAt > 60000) {
+        pauseTimerFired = true
+        showWelcomeScreen()
+      }
+
+      // content panel stays frozen — don't touch it
       return
     }
 
@@ -327,12 +532,37 @@ async function fetchNowPlaying() {
     durationMs = data.duration_ms
     lastServerSync = Date.now()
 
+    // reset pause timer
+    pausedAt = null
+    pauseTimerFired = false
+
     updatePlayPauseIcon(true)
     updateProgressBar(progressMs, durationMs)
     updateTopBar(data)
     updateBottomBar(data)
 
-    // same track — just sync the line
+    // if welcome was showing (paused > 12s), fade it out and restore everything
+    if (!welcomeScreen.classList.contains('hidden') && welcomeScreen.style.display !== 'none') {
+      hideWelcomeScreen(() => {
+        topBar.style.display = 'flex'
+        bottomBar.style.display = 'flex'
+        // restore whichever content panel was showing before pause
+        if (currentContentState === 'lyrics') {
+          lyricsContainer.style.display = 'flex'
+          stateScreen.style.display = 'none'
+          // re-sync to current position
+          if (currentLyrics.length > 0) {
+            updateActiveLine(getCurrentLineIndex(currentLyrics, progressMs + SYNC_OFFSET))
+          }
+        } else if (currentContentState) {
+          // loading / no-lyrics / english — stateScreen was showing
+          stateScreen.style.display = 'flex'
+          lyricsContainer.style.display = 'none'
+        }
+      })
+    }
+
+    // same track — just sync line
     if (data.track_id === currentTrackId) {
       if (currentLyrics.length > 0) {
         updateActiveLine(getCurrentLineIndex(currentLyrics, progressMs + SYNC_OFFSET))
@@ -404,7 +634,10 @@ async function fetchNowPlaying() {
   }
 }
 
-// ── local progress tick ──
+// ─────────────────────────────────────────
+//  LOCAL PROGRESS TICK
+// ─────────────────────────────────────────
+
 function tickProgress() {
   if (!isPlaying || durationMs === 0) return
 
@@ -420,7 +653,13 @@ function tickProgress() {
   }
 }
 
-// ── kick off ──
+// ─────────────────────────────────────────
+//  KICK OFF
+// ─────────────────────────────────────────
+
+// Show welcome (login mode) immediately — fetchNowPlaying will replace it
+showWelcomeScreen()
+
 fetchNowPlaying()
 setInterval(fetchNowPlaying, 5000)
 setInterval(fetchContext, 10000)

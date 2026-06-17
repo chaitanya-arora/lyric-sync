@@ -57,7 +57,7 @@
       </div>
     </div>
 
-    <!-- auto-translate settings button -->
+    <!-- settings button -->
     <div id="sidebar-settings-btn">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
       Auto-Translate Lyrics Settings
@@ -68,7 +68,7 @@
   <!-- ── main ── -->
   <div id="main">
 
-    <!-- top bar: removed settings cog, kept just track info + badge + toggle -->
+    <!-- top bar -->
     <div id="top-bar" style="display:none;">
       <img id="album-art" src="" alt="Album art">
       <div id="track-info">
@@ -84,15 +84,55 @@
       </div>
     </div>
 
-    <!-- state screen -->
-    <div id="state-screen">
+    <!-- ── WELCOME SCREEN (replaces old state-screen for login + pause>30s) ── -->
+    <div id="welcome-screen">
+      <!-- animated canvas background -->
+      <canvas id="welcome-canvas"></canvas>
+
+      <!-- paused: faded album art behind card -->
+      <div id="welcome-album-bg"></div>
+
+      <!-- foreground card -->
+      <div id="welcome-card">
+        <div id="welcome-logo">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10" stroke="#1DB954" stroke-width="1.5"/>
+            <path d="M8 12.5C9.5 11.5 12 11 15 12" stroke="#1DB954" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M7 9.5C9.5 8 13 7.5 17 9" stroke="#1DB954" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M9 15.5C10.5 14.8 12.5 14.5 15 15" stroke="#1DB954" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          LyricSync
+        </div>
+
+        <div id="welcome-tagline">Music, understood.</div>
+
+        <p id="welcome-desc">
+          Connect Spotify and LyricSync shows you real-time translated lyrics —
+          line by line, in sync, as you listen. No pausing. No Googling.
+          Just music and meaning, together.
+        </p>
+
+        <!-- login state only -->
+        <a id="welcome-login-btn" href="/login">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.563.387-.857.207-2.35-1.434-5.305-1.76-8.786-.963-.335.077-.67-.133-.746-.47-.077-.334.132-.67.47-.745 3.808-.87 7.076-.496 9.712 1.115.293.18.386.563.207.856zm1.223-2.722c-.226.367-.706.482-1.072.257-2.687-1.652-6.785-2.131-9.965-1.166-.413.127-.848-.106-.973-.517-.125-.413.108-.848.52-.973 3.632-1.102 8.147-.568 11.233 1.328.366.226.48.707.257 1.072zm.105-2.835C14.692 8.95 9.375 8.775 6.297 9.71c-.493.15-1.016-.129-1.166-.623-.148-.495.13-1.017.625-1.166 3.532-1.073 9.404-.866 13.115 1.337.445.264.590.838.327 1.282-.264.443-.838.59-1.284.327z"/>
+          </svg>
+          Connect with Spotify
+        </a>
+
+        <!-- paused state only -->
+        <div id="welcome-paused-hint">
+          <span id="welcome-paused-dot"></span>
+          Paused — resume in Spotify to continue
+        </div>
+      </div>
+    </div>
+
+    <!-- old state screen (loading, no-lyrics, english, nothing-playing) -->
+    <div id="state-screen" style="display:none;">
       <div id="state-icon">🎵</div>
-      <div id="state-title">Welcome to LyricSync</div>
-      <div id="state-subtitle">Connect your Spotify account to see real-time translated lyrics</div>
-      <a id="login-btn" href="/login">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.563.387-.857.207-2.35-1.434-5.305-1.76-8.786-.963-.335.077-.67-.133-.746-.47-.077-.334.132-.67.47-.745 3.808-.87 7.076-.496 9.712 1.115.293.18.386.563.207.856zm1.223-2.722c-.226.367-.706.482-1.072.257-2.687-1.652-6.785-2.131-9.965-1.166-.413.127-.848-.106-.973-.517-.125-.413.108-.848.52-.973 3.632-1.102 8.147-.568 11.233 1.328.366.226.48.707.257 1.072zm.105-2.835C14.692 8.95 9.375 8.775 6.297 9.71c-.493.15-1.016-.129-1.166-.623-.148-.495.13-1.017.625-1.166 3.532-1.073 9.404-.866 13.115 1.337.445.264.590.838.327 1.282-.264.443-.838.59-1.284.327z"/></svg>
-        Connect with Spotify
-      </a>
+      <div id="state-title"></div>
+      <div id="state-subtitle"></div>
     </div>
 
     <!-- lyrics area -->

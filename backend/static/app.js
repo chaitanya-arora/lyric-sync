@@ -9,6 +9,8 @@ let translationEnabled = true
 let lastServerSync = Date.now()
 let lastKnownData = null
 let isLoggedIn = false
+let isFetching = false
+let currentContentState = null // 'lyrics' | 'no-lyrics' | 'english' | 'loading' | null
 const translation_cache_js = {}
 
 const SYNC_OFFSET = -200
@@ -32,9 +34,6 @@ const timeTotal = document.getElementById('time-total')
 
 // ── content panel: only the middle changes ──
 function showContent(type, options = {}) {
-  // type: 'lyrics' | 'message'
-  // options: { icon, title, subtitle, showLogin }
-
   if (type === 'lyrics') {
     stateScreen.style.display = 'none'
     lyricsContainer.style.display = 'flex'
@@ -102,6 +101,12 @@ function renderLyrics(lyrics) {
     div.appendChild(translation)
     lyricsInner.appendChild(div)
   })
+
+  if (!translationEnabled) {
+    document.querySelectorAll('.lyric-translation').forEach(el => {
+      el.style.display = 'none'
+    })
+  }
 }
 
 function updateActiveLine(index) {
@@ -138,7 +143,13 @@ function updateTopBar(data) {
 }
 
 function updateBottomBar(data) {
-  document.getElementById('bottom-art').src = data.album_art || ''
+  const bottomArt = document.getElementById('bottom-art')
+  if (data.album_art) {
+    bottomArt.src = data.album_art
+    bottomArt.style.display = 'block'
+  } else {
+    bottomArt.style.display = 'none'
+  }
   document.getElementById('bottom-song').textContent = data.song
   document.getElementById('bottom-artist').textContent = data.artist
 }
@@ -174,6 +185,7 @@ async function togglePlayPause() {
 
 // ── context (queue) ──
 async function fetchContext() {
+  if (!isLoggedIn) return
   try {
     const res = await fetch('/context')
     if (!res.ok) return
@@ -253,10 +265,12 @@ document.getElementById('coming-soon-modal').addEventListener('click', function(
 
 // ── main fetch loop ──
 async function fetchNowPlaying() {
+  if (isFetching) return
+  isFetching = true
+
   try {
     const response = await fetch('/now-playing')
 
-    // not logged in — show welcome, hide bars
     if (response.redirected && response.url.includes('/login')) {
       showWelcome()
       return
@@ -267,10 +281,10 @@ async function fetchNowPlaying() {
       return
     }
 
-    // logged in — bars always visible from here
     if (!isLoggedIn) {
       isLoggedIn = true
       showBars()
+      fetchContext()
     }
 
     const data = await response.json()
@@ -287,20 +301,22 @@ async function fetchNowPlaying() {
       return
     }
 
-    // ── NOTHING PLAYING (204 or truly idle) ──
+    // ── NOTHING PLAYING ──
     if (!data.playing && !data.song) {
       isPlaying = false
       updatePlayPauseIcon(false)
       if (lastKnownData) {
-        // keep last track visible in bars
         updateTopBar(lastKnownData)
         updateBottomBar(lastKnownData)
       }
-      showContent('message', {
-        icon: '⏸️',
-        title: 'Nothing playing',
-        subtitle: 'Play something on Spotify to see lyrics'
-      })
+      // only show "nothing playing" if we're not already showing a track-specific state
+      if (!currentContentState || currentContentState === 'lyrics') {
+        showContent('message', {
+          icon: '⏸️',
+          title: 'Nothing playing',
+          subtitle: 'Play something on Spotify to see lyrics'
+        })
+      }
       return
     }
 
@@ -328,9 +344,9 @@ async function fetchNowPlaying() {
     currentTrackId = data.track_id
     currentLyrics = []
     currentLineIndex = -1
+    currentContentState = 'loading'
     langBadge.style.display = 'none'
 
-    // show loading in content panel — bars stay put
     showContent('message', {
       icon: '⏳',
       title: 'Loading lyrics...',
@@ -343,6 +359,7 @@ async function fetchNowPlaying() {
     const translateData = await translateRes.json()
 
     if (!translateData.translated) {
+      currentContentState = 'no-lyrics'
       showContent('message', {
         icon: '🎵',
         title: "Couldn't find lyrics yet",
@@ -356,6 +373,7 @@ async function fetchNowPlaying() {
     )
 
     if (currentLyrics.length === 0) {
+      currentContentState = 'english'
       showContent('message', {
         icon: '💬',
         title: 'Already in English',
@@ -372,6 +390,7 @@ async function fetchNowPlaying() {
     }
 
     renderLyrics(currentLyrics)
+    currentContentState = 'lyrics'
     showContent('lyrics')
 
     if (currentLyrics.length > 0) {
@@ -380,7 +399,8 @@ async function fetchNowPlaying() {
 
   } catch (err) {
     console.error('Fetch error:', err)
-    // never wipe the UI on a network error
+  } finally {
+    isFetching = false
   }
 }
 
@@ -402,7 +422,6 @@ function tickProgress() {
 
 // ── kick off ──
 fetchNowPlaying()
-fetchContext()
 setInterval(fetchNowPlaying, 5000)
 setInterval(fetchContext, 10000)
 setInterval(tickProgress, 1000)

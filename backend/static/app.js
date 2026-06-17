@@ -20,7 +20,6 @@ let pauseTimerFired = false
 // ── prefetch: next-track lyrics ──
 let prefetchedTrackId = null     // track_id we already prefetched
 let isPrefetching = false        // guard against duplicate prefetch calls
-let prefetchTriggered = false    // only trigger once per track
 
 const SYNC_OFFSET_BASE = -500   // base lead in ms — accounts for render + network lag
 let dynamicOffset = 0           // auto-corrected drift measured each poll cycle
@@ -164,7 +163,8 @@ function animateWelcome(t) {
 }
 
 function startWelcomeAnimation() {
-  if (isAnimating) return
+  // always stop first so restart after disconnect works cleanly
+  stopWelcomeAnimation()
   resizeCanvas()
   initFloats()
   isAnimating = true
@@ -206,14 +206,14 @@ function showWelcomeScreen() {
     document.getElementById('welcome-tagline').textContent = "You're connected!"
     document.getElementById('welcome-desc').textContent =
       'Play a song in Spotify to see real-time translated lyrics.'
+    stopWelcomeAnimation()   // no floating elements on "you're connected"
   } else {
     welcomeLoginBtn.classList.remove('hidden')
     document.getElementById('welcome-tagline').textContent = 'Music, understood.'
     document.getElementById('welcome-desc').textContent =
       'Connect Spotify and LyricSync shows you real-time translated lyrics — line by line, in sync, as you listen. No pausing. No Googling. Just music and meaning, together.'
+    startWelcomeAnimation()  // flags + notes only on login welcome screen
   }
-
-  startWelcomeAnimation()
 }
 
 function hideWelcomeScreen(callback) {
@@ -460,6 +460,49 @@ document.getElementById('coming-soon-modal').addEventListener('click', function(
   if (e.target === this) closeModal()
 })
 
+// ── settings modal ──
+document.getElementById('sidebar-settings-btn').addEventListener('click', openSettings)
+document.getElementById('settings-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeSettings()
+})
+
+function openSettings() {
+  // populate account name if we have it
+  fetch('/me')
+    .then(r => r.json())
+    .then(data => {
+      const nameEl = document.getElementById('settings-account-name')
+      if (nameEl && data.display_name) nameEl.textContent = data.display_name
+      const emailEl = document.getElementById('settings-account-email')
+      if (emailEl && data.email) emailEl.textContent = data.email
+    })
+    .catch(() => {})
+  document.getElementById('settings-modal').style.display = 'flex'
+}
+
+function closeSettings() {
+  document.getElementById('settings-modal').style.display = 'none'
+}
+
+async function disconnectSpotify() {
+  try {
+    await fetch('/logout', { method: 'POST' })
+  } catch(e) {}
+  // reset all client state
+  isLoggedIn = false
+  currentTrackId = null
+  currentLyrics = []
+  currentLineIndex = -1
+  lastKnownData = null
+  pausedAt = null
+  pauseTimerFired = false
+  isPlaying = false
+  // close settings modal
+  closeSettings()
+  // show login welcome screen
+  showWelcomeScreen()
+}
+
 // ─────────────────────────────────────────
 //  PREFETCH NEXT TRACK
 // ─────────────────────────────────────────
@@ -584,13 +627,7 @@ async function fetchNowPlaying() {
     updateTopBar(data)
     updateBottomBar(data)
 
-    // ── 60s-before-end prefetch ──
-    // Fire once per track when there's 60s or less remaining
-    const remaining = durationMs - progressMs
-    if (remaining > 0 && remaining <= 60000 && !prefetchTriggered) {
-      prefetchTriggered = true
-      prefetchNextTrack()
-    }
+
 
     // if welcome was showing (paused > 12s), fade it out and restore everything
     if (!welcomeScreen.classList.contains('hidden') && welcomeScreen.style.display !== 'none') {
@@ -627,7 +664,6 @@ async function fetchNowPlaying() {
     currentLineIndex = -1
     currentContentState = 'loading'
     langBadge.style.display = 'none'
-    prefetchTriggered = false   // reset so 60s trigger fires for this track
     dynamicOffset = 0           // reset drift for new track
     prefetchNextTrack()         // immediately prefetch next-in-queue in case of skip
 
@@ -637,10 +673,29 @@ async function fetchNowPlaying() {
       subtitle: `Fetching translation for ${data.song}`
     })
 
-    const translateRes = await fetch(
-      `/translate?song=${encodeURIComponent(data.song)}&artist=${encodeURIComponent(data.artist)}&track_id=${encodeURIComponent(data.track_id)}&target_lang=EN`
-    )
-    const translateData = await translateRes.json()
+    let translateData
+    try {
+      const translateRes = await fetch(
+        `/translate?song=${encodeURIComponent(data.song)}&artist=${encodeURIComponent(data.artist)}&track_id=${encodeURIComponent(data.track_id)}&target_lang=EN`
+      )
+      if (!translateRes.ok) {
+        // server error (e.g. LRCLIB timeout) — reset track so next poll retries
+        currentTrackId = null
+        currentContentState = null
+        showContent('message', {
+          icon: '⏳',
+          title: 'Fetching lyrics...',
+          subtitle: 'Taking a little longer than usual, hang tight.'
+        })
+        return
+      }
+      translateData = await translateRes.json()
+    } catch (e) {
+      // network error — same reset
+      currentTrackId = null
+      currentContentState = null
+      return
+    }
 
     if (!translateData.translated) {
       currentContentState = 'no-lyrics'

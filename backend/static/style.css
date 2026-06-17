@@ -340,20 +340,6 @@ body {
   height: 100%;
 }
 
-/* paused: faded blurred album art */
-#welcome-album-bg {
-  position: absolute;
-  inset: 0;
-  background-size: cover;
-  background-position: center;
-  filter: blur(40px) brightness(0.18) saturate(1.4);
-  transform: scale(1.08); /* avoids blur edge gaps */
-  opacity: 0;
-  transition: opacity 1s ease;
-}
-
-#welcome-album-bg.visible { opacity: 1; }
-
 /* foreground card */
 #welcome-card {
   position: relative;
@@ -421,26 +407,6 @@ body {
 }
 
 #welcome-login-btn.hidden { display: none; }
-
-/* paused hint — shown instead of login button when paused > 30s */
-#welcome-paused-hint {
-  display: none;
-  align-items: center;
-  gap: 8px;
-  margin-top: 4px;
-  font-size: 13px;
-  color: #444444;
-}
-
-#welcome-paused-hint.visible { display: flex; }
-
-#welcome-paused-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #444444;
-  flex-shrink: 0;
-}
 
 /* ── old state screen (loading / no-lyrics / english / nothing-playing) ── */
 #state-screen {
@@ -768,4 +734,172 @@ body {
   #welcome-screen, #welcome-album-bg, .lyric-original, .lyric-translation {
     transition: none;
   }
+}
+
+/* ─────────────────────────────────────────
+   SETTINGS MODAL
+───────────────────────────────────────── */
+#settings-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+#settings-card {
+  background: #161616;
+  border: 0.5px solid #2a2a2a;
+  border-radius: 20px;
+  width: 420px;
+  overflow: hidden;
+}
+
+#settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22px 24px 18px;
+  border-bottom: 0.5px solid #222222;
+}
+
+#settings-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+#settings-close {
+  background: none;
+  border: none;
+  color: #555555;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s;
+}
+
+#settings-close:hover { color: #ffffff; }
+
+/* sections */
+.settings-section {
+  padding: 20px 24px;
+  border-bottom: 0.5px solid #1e1e1e;
+}
+
+.settings-section:last-child { border-bottom: none; }
+
+.settings-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #444444;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 14px;
+}
+
+/* account row */
+#settings-account-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#settings-account-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #1a3a20;
+  color: #1DB954;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+#settings-account-info {
+  flex: 1;
+  min-width: 0;
+}
+
+#settings-account-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#settings-account-email {
+  font-size: 12px;
+  color: #555555;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#settings-disconnect-btn {
+  background: transparent;
+  border: 1px solid #3a1a1a;
+  color: #cc4444;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+#settings-disconnect-btn:hover {
+  background: #2a1010;
+  border-color: #cc4444;
+}
+
+/* language row */
+#settings-lang-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+#settings-lang-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #ffffff;
+}
+
+#settings-lang-sub {
+  font-size: 12px;
+  color: #555555;
+  margin-top: 2px;
+}
+
+#settings-lang-badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 4px;
+  background: rgba(29, 185, 84, 0.1);
+  color: #1DB954;
+  border: 1px solid rgba(29, 185, 84, 0.3);
+  flex-shrink: 0;
+}
+
+#settings-lang-coming-soon {
+  font-size: 12px;
+  color: #444444;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }

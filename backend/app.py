@@ -70,14 +70,16 @@ def fetch_lyrics(song, artist):
     response = requests.get(
         'https://lrclib.net/api/get',
         params={'track_name': song, 'artist_name': artist},
-        headers={'User-Agent': 'LyricSync/1.0 (https://github.com/chaitanya-arora/lyric-sync)'}
+        headers={'User-Agent': 'LyricSync/1.0 (https://github.com/chaitanya-arora/lyric-sync)'},
+        timeout=10
     )
 
     if response.status_code == 404 or response.status_code != 200:
         search_response = requests.get(
             'https://lrclib.net/api/search',
             params={'track_name': song, 'artist_name': artist},
-            headers={'User-Agent': 'LyricSync/1.0 (https://github.com/chaitanya-arora/lyric-sync)'}
+            headers={'User-Agent': 'LyricSync/1.0 (https://github.com/chaitanya-arora/lyric-sync)'},
+            timeout=10
         )
 
         if search_response.status_code != 200:
@@ -133,6 +135,7 @@ def login():
         'response_type': 'code',
         'redirect_uri': SPOTIFY_REDIRECT_URI,
         'scope': SCOPE,
+        'show_dialog': 'true',  # always show account picker — prevents auto-login after disconnect
     }
     auth_url = f"{SPOTIFY_AUTH_URL}?{urllib.parse.urlencode(params)}"
     return redirect(auth_url)
@@ -171,7 +174,7 @@ def callback():
 def me():
     access_token = get_access_token()
     if not access_token:
-        return redirect('/login')
+        return jsonify({'error': 'Not authenticated'}), 401
 
     response = requests.get(
         f"{SPOTIFY_API_URL}/me",
@@ -179,9 +182,15 @@ def me():
     )
 
     if response.status_code != 200:
-        return f"Spotify API error: {response.status_code} - {response.text}", 400
+        return jsonify({'error': f'Spotify API error: {response.status_code}'}), 400
 
     return jsonify(response.json())
+
+
+@app.route('/logout', methods=['POST', 'GET'])
+def logout():
+    session.clear()
+    return ('', 204)  # frontend handles showing the welcome screen
 
 
 @app.route('/now-playing')
@@ -251,6 +260,7 @@ def queue():
 
     return jsonify({'queue': queue_items})
 
+
 @app.route('/context')
 def context():
     access_token = get_access_token()
@@ -259,13 +269,11 @@ def context():
 
     headers = {'Authorization': f'Bearer {access_token}'}
 
-    # fetch queue (next tracks)
     queue_res = requests.get(
         f"{SPOTIFY_API_URL}/me/player/queue",
         headers=headers
     )
 
-    # fetch recently played (previous tracks)
     recent_res = requests.get(
         f"{SPOTIFY_API_URL}/me/player/recently-played?limit=2",
         headers=headers
@@ -304,6 +312,7 @@ def context():
         'next': next_tracks
     })
 
+
 @app.route('/playback', methods=['POST'])
 def playback():
     access_token = get_access_token()
@@ -324,7 +333,6 @@ def playback():
     else:
         return jsonify({'error': 'Invalid action'}), 400
 
-    # spotify returns 204 on success for playback actions
     if r.status_code in (200, 204):
         return jsonify({'success': True})
 
@@ -360,7 +368,13 @@ def translate():
             'lyrics': translation_cache[cache_key]
         })
 
-    lyrics_data = fetch_lyrics(song, artist)
+    try:
+        lyrics_data = fetch_lyrics(song, artist)
+    except Exception as e:
+        return jsonify({
+            'translated': False,
+            'message': f'Lyrics fetch failed: {str(e)}'
+        })
 
     if not lyrics_data.get('found'):
         return jsonify({
@@ -374,7 +388,8 @@ def translate():
     deepl_response = requests.post(
         DEEPL_API_URL,
         headers={'Authorization': f'DeepL-Auth-Key {DEEPL_API_KEY}'},
-        json={'text': texts_to_translate, 'target_lang': target_lang}
+        json={'text': texts_to_translate, 'target_lang': target_lang},
+        timeout=10
     )
 
     if deepl_response.status_code != 200:

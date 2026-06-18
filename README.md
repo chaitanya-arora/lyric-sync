@@ -10,7 +10,7 @@ Built for language learners, music lovers, and anyone who's ever felt an emotion
 
 🔗 **[lyric-sync-production.up.railway.app](https://lyric-sync-production.up.railway.app)**
 
-LyricSync is currently in development mode — Spotify restricts access to approved users only. If you'd like to try it, **reach out to me directly** and I'll add you to the allowlist (limited to 25 users total).
+LyricSync is currently in development mode — Spotify restricts access to approved users only. If you'd like to try it, **reach out to me directly** and I'll add you to the allowlist (limited to 5 users total).
 
 ---
 

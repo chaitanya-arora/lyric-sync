@@ -75,12 +75,12 @@ const LANG_ITEMS = [
 
 // Aura orbs — brighter, more vivid than before
 const ORBS = [
-  { x: 0.15, y: 0.25, r: 0.40, hue: 355, speed: 0.00008 }, // coral red
-  { x: 0.82, y: 0.58, r: 0.35, hue: 272, speed: 0.00006 }, // purple
-  { x: 0.50, y: 0.88, r: 0.33, hue: 168, speed: 0.00010 }, // teal
-  { x: 0.74, y: 0.18, r: 0.28, hue: 42,  speed: 0.00007 }, // amber
-  { x: 0.28, y: 0.72, r: 0.25, hue: 315, speed: 0.00009 }, // magenta
-  { x: 0.60, y: 0.40, r: 0.20, hue: 142, speed: 0.00011 }, // green
+  { x: 0.15, y: 0.25, r: 0.50, hue: 355, speed: 0.00012 }, // coral red — bigger + faster
+  { x: 0.82, y: 0.58, r: 0.45, hue: 272, speed: 0.00010 }, // purple
+  { x: 0.50, y: 0.88, r: 0.42, hue: 168, speed: 0.00014 }, // teal
+  { x: 0.74, y: 0.18, r: 0.38, hue: 42,  speed: 0.00011 }, // amber
+  { x: 0.28, y: 0.72, r: 0.35, hue: 315, speed: 0.00013 }, // magenta
+  { x: 0.60, y: 0.40, r: 0.28, hue: 142, speed: 0.00015 }, // green
 ]
 
 let floats = []
@@ -206,13 +206,17 @@ function showWelcomeScreen() {
     document.getElementById('welcome-tagline').textContent = "You're connected!"
     document.getElementById('welcome-desc').textContent =
       'Play a song in Spotify to see real-time translated lyrics.'
-    stopWelcomeAnimation()   // no floating elements on "you're connected"
+    // orbs run on connected screen too — just no floating flags/notes
+    stopWelcomeAnimation()
+    resizeCanvas()
+    isAnimating = true
+    requestAnimationFrame(animateWelcome)
   } else {
     welcomeLoginBtn.classList.remove('hidden')
     document.getElementById('welcome-tagline').textContent = 'Music, understood.'
     document.getElementById('welcome-desc').textContent =
       'Connect Spotify and LyricSync shows you real-time translated lyrics — line by line, in sync, as you listen. No pausing. No Googling. Just music and meaning, together.'
-    startWelcomeAnimation()  // flags + notes only on login welcome screen
+    startWelcomeAnimation()  // flags + notes + orbs
   }
 }
 

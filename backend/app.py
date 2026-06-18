@@ -119,8 +119,82 @@ def fetch_lyrics(song, artist):
     return {'found': False, 'message': 'No lyrics available for this track'}
 
 
+def refresh_access_token():
+    refresh_token = session.get('refresh_token')
+    if not refresh_token:
+        return None
+    try:
+        response = requests.post(SPOTIFY_TOKEN_URL, data={
+            'grant_type': 'refresh_token',
+            'refresh_token': refresh_token,
+            'client_id': SPOTIFY_CLIENT_ID,
+            'client_secret': SPOTIFY_CLIENT_SECRET,
+        })
+        data = response.json()
+        if 'access_token' in data:
+            session['access_token'] = data['access_token']
+            # Spotify sometimes rotates the refresh token too — store if present
+            if 'refresh_token' in data:
+                session['refresh_token'] = data['refresh_token']
+            return data['access_token']
+    except Exception:
+        pass
+    return None
+
+
 def get_access_token():
     return session.get('access_token')
+
+
+def spotify_get(url, **kwargs):
+    """GET a Spotify API URL, auto-refreshing token on 401. Returns requests.Response."""
+    token = get_access_token()
+    if not token:
+        return None
+    headers = kwargs.pop('headers', {})
+    headers['Authorization'] = f'Bearer {token}'
+    r = requests.get(url, headers=headers, **kwargs)
+    if r.status_code == 401:
+        token = refresh_access_token()
+        if not token:
+            return r  # couldn't refresh — caller handles redirect to login
+        headers['Authorization'] = f'Bearer {token}'
+        r = requests.get(url, headers=headers, **kwargs)
+    return r
+
+
+def spotify_post(url, **kwargs):
+    """POST to a Spotify API URL, auto-refreshing token on 401. Returns requests.Response."""
+    token = get_access_token()
+    if not token:
+        return None
+    headers = kwargs.pop('headers', {})
+    headers['Authorization'] = f'Bearer {token}'
+    r = requests.post(url, headers=headers, **kwargs)
+    if r.status_code == 401:
+        token = refresh_access_token()
+        if not token:
+            return r
+        headers['Authorization'] = f'Bearer {token}'
+        r = requests.post(url, headers=headers, **kwargs)
+    return r
+
+
+def spotify_put(url, **kwargs):
+    """PUT to a Spotify API URL, auto-refreshing token on 401. Returns requests.Response."""
+    token = get_access_token()
+    if not token:
+        return None
+    headers = kwargs.pop('headers', {})
+    headers['Authorization'] = f'Bearer {token}'
+    r = requests.put(url, headers=headers, **kwargs)
+    if r.status_code == 401:
+        token = refresh_access_token()
+        if not token:
+            return r
+        headers['Authorization'] = f'Bearer {token}'
+        r = requests.put(url, headers=headers, **kwargs)
+    return r
 
 
 @app.route('/')
@@ -176,14 +250,11 @@ def me():
     if not access_token:
         return jsonify({'error': 'Not authenticated'}), 401
 
-    response = requests.get(
-        f"{SPOTIFY_API_URL}/me",
-        headers={'Authorization': f'Bearer {access_token}'}
-    )
-
+    response = spotify_get(f"{SPOTIFY_API_URL}/me")
+    if response is None or response.status_code == 401:
+        return jsonify({'error': 'Not authenticated'}), 401
     if response.status_code != 200:
         return jsonify({'error': f'Spotify API error: {response.status_code}'}), 400
-
     return jsonify(response.json())
 
 
@@ -199,10 +270,9 @@ def now_playing():
     if not access_token:
         return redirect('/login')
 
-    response = requests.get(
-        f"{SPOTIFY_API_URL}/me/player/currently-playing",
-        headers={'Authorization': f'Bearer {access_token}'}
-    )
+    response = spotify_get(f"{SPOTIFY_API_URL}/me/player/currently-playing")
+    if response is None:
+        return redirect('/login')
 
     if response.status_code == 204:
         return jsonify({'playing': False, 'message': 'Nothing is currently playing'})
@@ -236,12 +306,8 @@ def queue():
     if not access_token:
         return jsonify({'error': 'Not authenticated'}), 401
 
-    response = requests.get(
-        f"{SPOTIFY_API_URL}/me/player/queue",
-        headers={'Authorization': f'Bearer {access_token}'}
-    )
-
-    if response.status_code != 200:
+    response = spotify_get(f"{SPOTIFY_API_URL}/me/player/queue")
+    if response is None or response.status_code != 200:
         return jsonify({'queue': []})
 
     data = response.json()
@@ -267,20 +333,11 @@ def context():
     if not access_token:
         return jsonify({'error': 'Not authenticated'}), 401
 
-    headers = {'Authorization': f'Bearer {access_token}'}
-
-    queue_res = requests.get(
-        f"{SPOTIFY_API_URL}/me/player/queue",
-        headers=headers
-    )
-
-    recent_res = requests.get(
-        f"{SPOTIFY_API_URL}/me/player/recently-played?limit=2",
-        headers=headers
-    )
+    queue_res = spotify_get(f"{SPOTIFY_API_URL}/me/player/queue")
+    recent_res = spotify_get(f"{SPOTIFY_API_URL}/me/player/recently-played?limit=2")
 
     next_tracks = []
-    if queue_res.status_code == 200:
+    if queue_res and queue_res.status_code == 200:
         for track in queue_res.json().get('queue', [])[:3]:
             if track.get('type') != 'track':
                 continue
@@ -294,7 +351,7 @@ def context():
             })
 
     prev_tracks = []
-    if recent_res.status_code == 200:
+    if recent_res and recent_res.status_code == 200:
         items = recent_res.json().get('items', [])[:2]
         for item in reversed(items):
             track = item['track']
@@ -320,16 +377,14 @@ def playback():
         return jsonify({'error': 'Not authenticated'}), 401
 
     action = request.json.get('action')
-    headers = {'Authorization': f'Bearer {access_token}'}
-
     if action == 'play':
-        r = requests.put(f"{SPOTIFY_API_URL}/me/player/play", headers=headers)
+        r = spotify_put(f"{SPOTIFY_API_URL}/me/player/play")
     elif action == 'pause':
-        r = requests.put(f"{SPOTIFY_API_URL}/me/player/pause", headers=headers)
+        r = spotify_put(f"{SPOTIFY_API_URL}/me/player/pause")
     elif action == 'next':
-        r = requests.post(f"{SPOTIFY_API_URL}/me/player/next", headers=headers)
+        r = spotify_post(f"{SPOTIFY_API_URL}/me/player/next")
     elif action == 'previous':
-        r = requests.post(f"{SPOTIFY_API_URL}/me/player/previous", headers=headers)
+        r = spotify_post(f"{SPOTIFY_API_URL}/me/player/previous")
     else:
         return jsonify({'error': 'Invalid action'}), 400
 

@@ -512,6 +512,8 @@ body {
   opacity: 0.4;
   font-style: italic;
   transition: opacity 0.3s ease;
+  white-space: normal;
+  word-wrap: break-word;
 }
 
 .lyric-line.active {

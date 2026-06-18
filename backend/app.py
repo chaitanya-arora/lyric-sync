@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 import os
 import requests
 import urllib.parse
+import json
 
 load_dotenv()
 
@@ -24,7 +25,22 @@ SPOTIFY_API_URL = 'https://api.spotify.com/v1'
 
 SCOPE = 'user-read-currently-playing user-read-playback-state user-modify-playback-state user-read-recently-played'
 
-translation_cache = {}
+import sqlite3
+
+DB_PATH = os.path.join(os.path.dirname(__file__), 'translations.db')
+
+def init_db():
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS translations (
+                cache_key TEXT PRIMARY KEY,
+                lyrics_json TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        conn.commit()
+
+init_db()
 
 
 def parse_lrc(lrc_text):
@@ -416,12 +432,17 @@ def translate():
         return jsonify({'error': 'song, artist and track_id parameters required'}), 400
 
     cache_key = f"{track_id}_{target_lang}"
-    if cache_key in translation_cache:
-        return jsonify({
-            'translated': True,
-            'cached': True,
-            'lyrics': translation_cache[cache_key]
-        })
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            'SELECT lyrics_json FROM translations WHERE cache_key = ?',
+            (cache_key,)
+        ).fetchone()
+        if row:
+            return jsonify({
+                'translated': True,
+                'cached': True,
+                'lyrics': json.loads(row[0])
+            })
 
     try:
         lyrics_data = fetch_lyrics(song, artist)
@@ -464,7 +485,12 @@ def translate():
             'detected_language': translations[i]['detected_source_language']
         })
 
-    translation_cache[cache_key] = combined
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            'INSERT OR REPLACE INTO translations (cache_key, lyrics_json) VALUES (?, ?)',
+            (cache_key, json.dumps(combined))
+        )
+        conn.commit()
 
     return jsonify({
         'translated': True,

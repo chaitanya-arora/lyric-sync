@@ -438,8 +438,31 @@ def playback():
     else:
         return jsonify({'error': 'Invalid action'}), 400
 
+    if r is None:
+        return jsonify({'error': 'Not authenticated'}), 401
+
     if r.status_code in (200, 204):
         return jsonify({'success': True})
+
+    # Spotify explains playback refusals in the body — pass the reason on so the
+    # client can say something useful instead of failing silently.
+    reason = None
+    try:
+        reason = (r.json().get('error') or {}).get('reason')
+    except ValueError:
+        pass
+
+    if reason == 'NO_ACTIVE_DEVICE' or r.status_code == 404:
+        return jsonify({
+            'error': 'No active Spotify device',
+            'reason': 'no_active_device'
+        }), 409
+
+    if reason == 'PREMIUM_REQUIRED':
+        return jsonify({
+            'error': 'Spotify Premium is required to control playback',
+            'reason': 'premium_required'
+        }), 403
 
     return jsonify({'error': f'Spotify error: {r.status_code}'}), 400
 

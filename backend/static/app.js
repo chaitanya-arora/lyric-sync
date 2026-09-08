@@ -50,6 +50,7 @@ const progressKnob = document.getElementById('progress-knob')
 const timeCurrent = document.getElementById('time-current')
 const timeTotal = document.getElementById('time-total')
 const welcomeScreen = document.getElementById('welcome-screen')
+const toast = document.getElementById('toast')
 const welcomeLoginBtn = document.getElementById('welcome-login-btn')
 
 // ─────────────────────────────────────────
@@ -373,16 +374,57 @@ function toggleTranslation() {
 //  PLAYBACK CONTROLS
 // ─────────────────────────────────────────
 
+let toastTimer = null
+
+function showToast(message, ms = 5000) {
+  toast.textContent = message
+  toast.classList.add('visible')
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => toast.classList.remove('visible'), ms)
+}
+
+async function postPlayback(body) {
+  const res = await fetch('/playback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+  if (res.ok) return { ok: true }
+  let payload = {}
+  try { payload = await res.json() } catch (e) { /* no JSON body to read */ }
+  return { ok: false, reason: payload.reason, error: payload.error }
+}
+
+// The Web API drives whichever Spotify device is active — it can't play audio
+// itself. With Spotify closed everywhere there's nothing to drive, and the
+// controls would otherwise just do nothing at all.
+const PLAYBACK_PROBLEMS = {
+  no_active_device: "Open Spotify on any device to start playback — LyricSync controls your player, it doesn't play the audio itself.",
+  premium_required: 'Spotify Premium is required to control playback from here.'
+}
+
+const UNREACHABLE = "Couldn't reach Spotify — try again in a moment."
+
+function reportPlaybackProblem(result) {
+  // own keys only — a reason like "constructor" would otherwise resolve to
+  // something off Object.prototype and get rendered into the toast
+  const known = Object.hasOwn(PLAYBACK_PROBLEMS, result.reason ?? '')
+    ? PLAYBACK_PROBLEMS[result.reason]
+    : null
+  showToast(known || result.error || UNREACHABLE)
+}
+
 async function sendPlayback(action) {
   try {
-    const res = await fetch('/playback', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action })
-    })
-    if (res.ok) setTimeout(fetchNowPlaying, 400)
+    const result = await postPlayback({ action })
+    if (result.ok) {
+      setTimeout(fetchNowPlaying, 400)
+      return
+    }
+    reportPlaybackProblem(result)
   } catch (e) {
     console.error('Playback error:', e)
+    showToast(UNREACHABLE)
   }
 }
 
@@ -426,16 +468,18 @@ async function commitSeek(ms) {
   previewSeek(target)
 
   try {
-    const res = await fetch('/playback', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'seek', position_ms: target })
-    })
-    if (!res.ok) throw new Error(`seek rejected: ${res.status}`)
+    const result = await postPlayback({ action: 'seek', position_ms: target })
+    if (!result.ok) {
+      seekSettleUntil = 0          // rejected — let the next poll put us back
+      reportPlaybackProblem(result)
+      fetchNowPlaying()
+      return
+    }
     setTimeout(fetchNowPlaying, SEEK_SETTLE_MS + 100)
   } catch (e) {
     console.warn('Seek error:', e)
-    seekSettleUntil = 0            // failed — let the next poll put us back
+    seekSettleUntil = 0
+    showToast(UNREACHABLE)
     fetchNowPlaying()
   }
 }

@@ -1,0 +1,4 @@
+# Development and CI only — not installed in production.
+# Railway installs requirements.txt, which must stay free of test tooling.
+flake8==7.3.0
+pytest==9.1.1

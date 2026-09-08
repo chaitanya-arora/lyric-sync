@@ -1,5 +1,6 @@
 // ── state ──
 let currentTrackId = null
+let currentTrackData = null   // display data for currentTrackId, kept in step with it
 let localRecent = []          // tracks we saw finish, newest first
 let currentLyrics = []
 let currentLineIndex = -1
@@ -388,8 +389,9 @@ async function fetchContext() {
   if (!isLoggedIn) return
   try {
     // tell the server what's playing so it can keep it out of "recently played"
-    const url = currentTrackId
-      ? `/context?current=${encodeURIComponent(currentTrackId)}`
+    const playing = playerTrackId()
+    const url = playing
+      ? `/context?current=${encodeURIComponent(playing)}`
       : '/context'
     const res = await fetch(url)
     if (!res.ok) return
@@ -424,13 +426,21 @@ function rememberRecent(track) {
 
 // Local history first (it's fresher), Spotify's list behind it, de-duped by
 // track. The server sends oldest-first, so flip it in and flip the result back.
+// What is loaded in the player right now. This is not always the track whose
+// lyrics we hold: pausing and then switching track leaves currentTrackId behind
+// until playback resumes, while lastKnownData follows the player.
+function playerTrackId() {
+  return lastKnownData?.track_id || currentTrackId
+}
+
 function mergeRecent(serverPrev) {
   const merged = []
   const seen = new Set()
+  const playing = playerTrackId()
 
   for (const track of [...localRecent, ...[...serverPrev].reverse()]) {
     if (!track.track_id || seen.has(track.track_id)) continue
-    if (track.track_id === currentTrackId) continue
+    if (track.track_id === playing) continue
     seen.add(track.track_id)
     merged.push(track)
     if (merged.length === RECENT_DISPLAY) break
@@ -558,6 +568,7 @@ async function disconnectSpotify() {
   // reset all client state
   isLoggedIn = false
   currentTrackId = null
+  currentTrackData = null
   localRecent = []
   currentLyrics = []
   currentLineIndex = -1
@@ -665,7 +676,6 @@ async function fetchNowPlaying() {
 
     // ── PLAYING ──
     isPlaying = true
-    const outgoingTrack = lastKnownData   // what we were on before this poll
     lastKnownData = data
     durationMs = data.duration_ms
     lastServerSync = Date.now()
@@ -728,11 +738,14 @@ async function fetchNowPlaying() {
     }
 
     // ── NEW TRACK ──
-    // Record the outgoing track ourselves rather than waiting on Spotify.
-    if (outgoingTrack && outgoingTrack.track_id !== data.track_id) {
-      rememberRecent(outgoingTrack)
+    // Record the outgoing track ourselves rather than waiting on Spotify. This
+    // reads currentTrackData rather than lastKnownData: the paused branch moves
+    // lastKnownData onto the new track, so it can't tell us what we left.
+    if (currentTrackData && currentTrackData.track_id !== data.track_id) {
+      rememberRecent(currentTrackData)
     }
     currentTrackId = data.track_id
+    currentTrackData = data
     currentLyrics = []
     currentLineIndex = -1
     currentContentState = 'loading'

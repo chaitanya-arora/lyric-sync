@@ -410,6 +410,65 @@ def context():
     return payload
 
 
+PLAYBACK_ACTIONS = ('play', 'pause', 'next', 'previous', 'seek')
+
+
+def spotify_error_reason(response):
+    """The 'reason' Spotify puts in an error body, when there is one."""
+    try:
+        return (response.json().get('error') or {}).get('reason')
+    except ValueError:
+        return None
+
+
+def is_no_active_device(response):
+    if response is None:
+        return False
+    return (response.status_code == 404
+            or spotify_error_reason(response) == 'NO_ACTIVE_DEVICE')
+
+
+def pick_controllable_device():
+    """A device Spotify still lists and that we're allowed to drive.
+
+    Prefers one Spotify already considers active. Restricted devices can't be
+    controlled through the Web API at all, so they're skipped.
+    """
+    res = spotify_get(f"{SPOTIFY_API_URL}/me/player/devices")
+    if res is None or res.status_code != 200:
+        return None
+    try:
+        devices = res.json().get('devices') or []
+    except ValueError:
+        return None
+
+    usable = [d for d in devices if d.get('id') and not d.get('is_restricted')]
+    if not usable:
+        return None
+    for device in usable:
+        if device.get('is_active'):
+            return device['id']
+    return usable[0]['id']
+
+
+def wake_device(play=False):
+    """Hand playback back to a device Spotify still knows about.
+
+    After a spell of inactivity Spotify drops the *active* device while still
+    listing the device itself, which is why resuming a paused session stops
+    working even with Spotify open. Transferring to it makes it active again.
+    Returns True if a device took over.
+    """
+    device_id = pick_controllable_device()
+    if not device_id:
+        return False
+    res = spotify_put(
+        f"{SPOTIFY_API_URL}/me/player",
+        json={'device_ids': [device_id], 'play': play}
+    )
+    return res is not None and res.status_code in (200, 202, 204)
+
+
 @app.route('/playback', methods=['POST'])
 def playback():
     access_token = get_access_token()
@@ -417,26 +476,39 @@ def playback():
         return jsonify({'error': 'Not authenticated'}), 401
 
     action = request.json.get('action')
-    if action == 'play':
-        r = spotify_put(f"{SPOTIFY_API_URL}/me/player/play")
-    elif action == 'pause':
-        r = spotify_put(f"{SPOTIFY_API_URL}/me/player/pause")
-    elif action == 'next':
-        r = spotify_post(f"{SPOTIFY_API_URL}/me/player/next")
-    elif action == 'previous':
-        r = spotify_post(f"{SPOTIFY_API_URL}/me/player/previous")
-    elif action == 'seek':
-        position_ms = request.json.get('position_ms')
+    if action not in PLAYBACK_ACTIONS:
+        return jsonify({'error': 'Invalid action'}), 400
+
+    position_ms = request.json.get('position_ms')
+    if action == 'seek':
         # bool is an int subclass, so reject it explicitly
         if isinstance(position_ms, bool) or not isinstance(position_ms, int):
             return jsonify({'error': 'position_ms must be an integer'}), 400
         if position_ms < 0:
             return jsonify({'error': 'position_ms must not be negative'}), 400
-        r = spotify_put(
+
+    def send():
+        if action == 'play':
+            return spotify_put(f"{SPOTIFY_API_URL}/me/player/play")
+        if action == 'pause':
+            return spotify_put(f"{SPOTIFY_API_URL}/me/player/pause")
+        if action == 'next':
+            return spotify_post(f"{SPOTIFY_API_URL}/me/player/next")
+        if action == 'previous':
+            return spotify_post(f"{SPOTIFY_API_URL}/me/player/previous")
+        return spotify_put(
             f"{SPOTIFY_API_URL}/me/player/seek?position_ms={position_ms}"
         )
-    else:
-        return jsonify({'error': 'Invalid action'}), 400
+
+    r = send()
+
+    # Resuming a session paused a while ago lands here: the device is idle
+    # rather than gone. Wake it and retry, instead of telling the user to go
+    # back to Spotify for something we can do ourselves.
+    if is_no_active_device(r) and wake_device(play=(action == 'play')):
+        if action == 'play':
+            return jsonify({'success': True, 'woke_device': True})
+        r = send()
 
     if r is None:
         return jsonify({'error': 'Not authenticated'}), 401
@@ -446,11 +518,7 @@ def playback():
 
     # Spotify explains playback refusals in the body — pass the reason on so the
     # client can say something useful instead of failing silently.
-    reason = None
-    try:
-        reason = (r.json().get('error') or {}).get('reason')
-    except ValueError:
-        pass
+    reason = spotify_error_reason(r)
 
     if reason == 'NO_ACTIVE_DEVICE' or r.status_code == 404:
         return jsonify({

@@ -124,9 +124,16 @@ def test_unknown_action_is_rejected(playback):
 
 @pytest.fixture
 def failing_playback(client, spotify, monkeypatch):
+    """Make every playback command fail with the given response.
+
+    The device lookup is stubbed empty as well: a no-active-device failure now
+    triggers one, and it must never reach the network from a test.
+    """
     def fail_with(response):
         monkeypatch.setattr(spotify, 'spotify_put', lambda url, **kw: response)
         monkeypatch.setattr(spotify, 'spotify_post', lambda url, **kw: response)
+        monkeypatch.setattr(spotify, 'spotify_get',
+                            lambda url, **kw: FakeResponse(200, {'devices': []}))
         return client.post('/playback', json={'action': 'play'})
 
     return fail_with
@@ -176,3 +183,99 @@ def test_missing_response_does_not_crash(client, spotify, monkeypatch):
 
 def test_playback_requires_authentication(client):
     assert client.post('/playback', json={'action': 'play'}).status_code == 401
+
+
+# --- /playback: waking an idle device ---
+
+PHONE = {'id': 'PHONE', 'name': 'Phone', 'is_active': False, 'is_restricted': False}
+SPEAKER = {'id': 'SPK', 'name': 'Speaker', 'is_active': True, 'is_restricted': False}
+LOCKED_TV = {'id': 'TV', 'name': 'TV', 'is_active': False, 'is_restricted': True}
+
+NO_ACTIVE_DEVICE = FakeResponse(404, {'error': {'status': 404, 'reason': 'NO_ACTIVE_DEVICE'}})
+
+
+@pytest.fixture
+def spotify_with(spotify, monkeypatch):
+    """Stub Spotify with a given device list and a queue of command responses.
+
+    Returns the list every Spotify request is recorded into, so a test can check
+    what was actually asked of Spotify — including that nothing was.
+    """
+    def setup(devices, command_responses):
+        calls = []
+        remaining = list(command_responses)
+
+        def put(url, **kwargs):
+            calls.append(('PUT', url, kwargs.get('json')))
+            if url.endswith('/me/player'):      # the transfer, not a command
+                return FakeResponse(204)
+            return remaining.pop(0)
+
+        def post(url, **kwargs):
+            calls.append(('POST', url, None))
+            return remaining.pop(0)
+
+        def get(url, **kwargs):
+            calls.append(('GET', url, None))
+            return FakeResponse(200, {'devices': devices})
+
+        monkeypatch.setattr(spotify, 'spotify_put', put)
+        monkeypatch.setattr(spotify, 'spotify_post', post)
+        monkeypatch.setattr(spotify, 'spotify_get', get)
+        return calls
+
+    return setup
+
+
+def transfers(calls):
+    return [payload for method, url, payload in calls if url.endswith('/me/player')]
+
+
+def test_resume_wakes_an_idle_device(client, spotify_with):
+    """The reported case: paused a few minutes, device idle but still listed."""
+    calls = spotify_with([PHONE], [NO_ACTIVE_DEVICE])
+    resp = client.post('/playback', json={'action': 'play'})
+    assert resp.status_code == 200
+    assert resp.get_json()['woke_device'] is True
+    assert transfers(calls) == [{'device_ids': ['PHONE'], 'play': True}]
+
+
+def test_prefers_the_device_spotify_marks_active(client, spotify_with):
+    calls = spotify_with([PHONE, SPEAKER], [NO_ACTIVE_DEVICE])
+    client.post('/playback', json={'action': 'play'})
+    assert transfers(calls)[0]['device_ids'] == ['SPK']
+
+
+def test_restricted_devices_are_never_chosen(client, spotify_with):
+    """The Web API can't drive a restricted device, so waking one is pointless."""
+    calls = spotify_with([LOCKED_TV], [NO_ACTIVE_DEVICE])
+    resp = client.post('/playback', json={'action': 'play'})
+    assert resp.status_code == 409
+    assert resp.get_json()['reason'] == 'no_active_device'
+    assert transfers(calls) == []
+
+
+def test_no_devices_listed_reports_honestly(client, spotify_with):
+    """Spotify closed everywhere — there is genuinely nothing to wake."""
+    spotify_with([], [NO_ACTIVE_DEVICE])
+    resp = client.post('/playback', json={'action': 'play'})
+    assert resp.status_code == 409
+    assert resp.get_json()['reason'] == 'no_active_device'
+
+
+def test_seek_wakes_without_autoplay_then_retries(client, spotify_with):
+    """Seeking shouldn't start playback as a side effect of waking a device."""
+    calls = spotify_with([PHONE], [NO_ACTIVE_DEVICE, FakeResponse(204)])
+    resp = client.post('/playback', json={'action': 'seek', 'position_ms': 30000})
+    assert resp.status_code == 200
+    assert transfers(calls) == [{'device_ids': ['PHONE'], 'play': False}]
+    assert sum(1 for _, url, _ in calls if 'seek' in url) == 2, 'seek was not retried'
+
+
+def test_successful_command_does_not_look_up_devices(client, spotify_with):
+    """Waking is recovery only — the healthy path must cost no extra call."""
+    calls = spotify_with([PHONE], [FakeResponse(204)])
+    resp = client.post('/playback', json={'action': 'play'})
+    assert resp.status_code == 200
+    assert 'woke_device' not in resp.get_json()
+    assert [c for c in calls if c[0] == 'GET'] == []

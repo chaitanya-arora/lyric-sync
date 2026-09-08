@@ -1,5 +1,5 @@
 # LyricSync 🎵
-### Multiculturalism through music
+### multiculturalism through music
 
 A web app that automatically translates song lyrics in real time as you listen on Spotify, so you can enjoy music in any language without missing a word.
 
@@ -11,7 +11,7 @@ Grew up loving Bollywood music without always understanding the lyrics. I wanted
 
 🔗 **[lyric-sync-production.up.railway.app](https://lyric-sync-production.up.railway.app)**
 
-LyricSync is currently in development mode. Spotify restricts access to approved users only, capping any app in this mode at 25 total users. If you'd like to try it, **reach out to me directly** and I'll add you to the allowlist.
+LyricSync is currently in development mode. Spotify restricts access to approved users only, capping any app in this mode at 5 manually approved users at a time. If you'd like to try it, **reach out to me directly** and I'll add you to the allowlist.
 
 ---
 

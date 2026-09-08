@@ -22,7 +22,8 @@ let pauseTimerFired = false
 let prefetchedTrackId = null     // track_id we already prefetched
 let isPrefetching = false        // guard against duplicate prefetch calls
 
-const SYNC_OFFSET_BASE = -500   // base lead in ms — accounts for render + network lag
+const SYNC_OFFSET_BASE = 200    // ms of lead — lines light up just before they're sung
+const TICK_MS = 100             // how often the active line is re-evaluated
 let dynamicOffset = 0           // auto-corrected drift measured each poll cycle
 let lastPollProgressMs = 0      // server progress_ms from last poll
 let lastPollTime = 0            // Date.now() when last poll completed
@@ -820,6 +821,8 @@ async function fetchNowPlaying() {
 //  LOCAL PROGRESS TICK
 // ─────────────────────────────────────────
 
+let lastDisplayedSecond = -1
+
 function tickProgress() {
   if (!isPlaying || durationMs === 0) return
 
@@ -828,7 +831,13 @@ function tickProgress() {
   const capped = Math.min(estimated, durationMs)
 
   progressBar.style.width = `${(capped / durationMs) * 100}%`
-  timeCurrent.textContent = formatTime(capped)
+
+  // the clock only changes once a second — don't rewrite it on every tick
+  const second = Math.floor(capped / 1000)
+  if (second !== lastDisplayedSecond) {
+    lastDisplayedSecond = second
+    timeCurrent.textContent = formatTime(capped)
+  }
 
   if (currentLyrics.length > 0) {
     updateActiveLine(getCurrentLineIndex(currentLyrics, capped + SYNC_OFFSET_BASE + dynamicOffset))
@@ -845,4 +854,4 @@ showWelcomeScreen()
 fetchNowPlaying()
 setInterval(fetchNowPlaying, 5000)
 setInterval(fetchContext, 10000)
-setInterval(tickProgress, 1000)
+setInterval(tickProgress, TICK_MS)

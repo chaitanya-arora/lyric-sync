@@ -25,6 +25,9 @@ let isPrefetching = false        // guard against duplicate prefetch calls
 
 const SYNC_OFFSET_BASE = 200    // ms of lead — lines light up just before they're sung
 const TICK_MS = 100             // how often the active line is re-evaluated
+const SEEK_SETTLE_MS = 1000     // how long to trust our own position after a seek
+let isScrubbing = false         // true while the progress bar is being dragged
+let seekSettleUntil = 0         // ignore server progress until this timestamp
 let dynamicOffset = 0           // auto-corrected drift measured each poll cycle
 let lastPollProgressMs = 0      // server progress_ms from last poll
 let lastPollTime = 0            // Date.now() when last poll completed
@@ -43,6 +46,9 @@ const lyricsContainer = document.getElementById('lyrics-container')
 const lyricsInner = document.getElementById('lyrics-inner')
 const bottomBar = document.getElementById('bottom-bar')
 const progressBar = document.getElementById('progress-bar')
+const progressHit = document.getElementById('progress-hit')
+const progressContainer = document.getElementById('progress-bar-container')
+const progressKnob = document.getElementById('progress-knob')
 const timeCurrent = document.getElementById('time-current')
 const timeTotal = document.getElementById('time-total')
 const welcomeScreen = document.getElementById('welcome-screen')
@@ -315,12 +321,18 @@ function updateActiveLine(index) {
   if (activeLine) activeLine.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
 
+function paintProgress(ms, dur = durationMs) {
+  const pct = dur > 0 ? Math.min((ms / dur) * 100, 100) : 0
+  progressBar.style.width = `${pct}%`
+  progressKnob.style.left = `${pct}%`
+}
+
 function updateProgressBar(ms, dur) {
-  if (dur > 0) {
-    progressBar.style.width = `${Math.min((ms / dur) * 100, 100)}%`
-    timeCurrent.textContent = formatTime(ms)
-    timeTotal.textContent = formatTime(dur)
-  }
+  if (dur <= 0) return
+  timeTotal.textContent = formatTime(dur)
+  if (isScrubbing) return   // the drag owns the bar until it's released
+  paintProgress(ms, dur)
+  timeCurrent.textContent = formatTime(ms)
 }
 
 function updatePlayPauseIcon(playing) {
@@ -380,6 +392,82 @@ async function togglePlayPause() {
   const action = isPlaying ? 'pause' : 'play'
   await sendPlayback(action)
 }
+
+// ─────────────────────────────────────────
+//  SEEKING (drag or click the progress bar)
+// ─────────────────────────────────────────
+
+// Where on the track the pointer is, as a position in the song.
+function seekTargetFrom(e) {
+  const rect = progressContainer.getBoundingClientRect()
+  if (rect.width === 0) return 0
+  const ratio = (e.clientX - rect.left) / rect.width
+  return Math.round(Math.min(Math.max(ratio, 0), 1) * durationMs)
+}
+
+// Paint a position without telling Spotify about it yet, so dragging shows
+// where you'd land — lyrics included — before you let go.
+function previewSeek(ms) {
+  paintProgress(ms)
+  timeCurrent.textContent = formatTime(ms)
+  lastDisplayedSecond = Math.floor(ms / 1000)
+  if (currentLyrics.length > 0) {
+    updateActiveLine(getCurrentLineIndex(currentLyrics, ms + SYNC_OFFSET_BASE + dynamicOffset))
+  }
+}
+
+async function commitSeek(ms) {
+  const target = Math.max(0, Math.min(ms, durationMs))
+
+  // Move locally straight away rather than waiting on the round trip, and hold
+  // that position until Spotify has had a chance to catch up.
+  progressMs = target
+  lastServerSync = Date.now()
+  lastPollTime = 0                 // a jump this size would poison drift correction
+  seekSettleUntil = Date.now() + SEEK_SETTLE_MS
+  previewSeek(target)
+
+  try {
+    const res = await fetch('/playback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'seek', position_ms: target })
+    })
+    if (!res.ok) throw new Error(`seek rejected: ${res.status}`)
+    setTimeout(fetchNowPlaying, SEEK_SETTLE_MS + 100)
+  } catch (e) {
+    console.warn('Seek error:', e)
+    seekSettleUntil = 0            // failed — let the next poll put us back
+    fetchNowPlaying()
+  }
+}
+
+function stopScrubbing() {
+  isScrubbing = false
+  progressHit.classList.remove('scrubbing')
+}
+
+progressHit.addEventListener('pointerdown', e => {
+  if (!durationMs) return          // nothing playing — nothing to seek within
+  isScrubbing = true
+  progressHit.classList.add('scrubbing')
+  progressHit.setPointerCapture(e.pointerId)
+  previewSeek(seekTargetFrom(e))
+})
+
+progressHit.addEventListener('pointermove', e => {
+  if (isScrubbing) previewSeek(seekTargetFrom(e))
+})
+
+progressHit.addEventListener('pointerup', e => {
+  if (!isScrubbing) return
+  stopScrubbing()
+  commitSeek(seekTargetFrom(e))
+})
+
+// Lost the pointer (gesture cancelled) — drop the drag and let the next poll
+// repaint from wherever Spotify actually is.
+progressHit.addEventListener('pointercancel', stopScrubbing)
 
 // ─────────────────────────────────────────
 //  CONTEXT (QUEUE)
@@ -653,7 +741,9 @@ async function fetchNowPlaying() {
         lastKnownData = data
         updateTopBar(data)
         updateBottomBar(data)
-        updateProgressBar(data.progress_ms, data.duration_ms)
+        if (Date.now() >= seekSettleUntil) {
+          updateProgressBar(data.progress_ms, data.duration_ms)
+        }
       } else if (lastKnownData) {
         updateTopBar(lastKnownData)
         updateBottomBar(lastKnownData)
@@ -678,24 +768,29 @@ async function fetchNowPlaying() {
     isPlaying = true
     lastKnownData = data
     durationMs = data.duration_ms
-    lastServerSync = Date.now()
 
-    // ── dynamic drift correction ──
-    // Compare where we predicted the song would be (via local tick)
-    // vs where Spotify actually says it is — the gap is our drift.
-    // We blend it in gradually (30% weight) to avoid jumpy corrections.
-    if (lastPollTime > 0 && data.track_id === currentTrackId) {
-      const expectedProgress = lastPollProgressMs + (Date.now() - lastPollTime)
-      const actualProgress = data.progress_ms
-      const measuredDrift = actualProgress - expectedProgress
-      // only correct if drift is significant (>100ms) and not a seek/skip jump (>3s)
-      if (Math.abs(measuredDrift) > 100 && Math.abs(measuredDrift) < 3000) {
-        dynamicOffset = Math.round(dynamicOffset * 0.7 + measuredDrift * 0.3)
+    // A seek we just issued may not be reflected by Spotify yet — adopting its
+    // position here would snap the bar back to where we seeked from.
+    if (Date.now() >= seekSettleUntil) {
+      lastServerSync = Date.now()
+
+      // ── dynamic drift correction ──
+      // Compare where we predicted the song would be (via local tick)
+      // vs where Spotify actually says it is — the gap is our drift.
+      // We blend it in gradually (30% weight) to avoid jumpy corrections.
+      if (lastPollTime > 0 && data.track_id === currentTrackId) {
+        const expectedProgress = lastPollProgressMs + (Date.now() - lastPollTime)
+        const actualProgress = data.progress_ms
+        const measuredDrift = actualProgress - expectedProgress
+        // only correct if drift is significant (>100ms) and not a seek/skip jump (>3s)
+        if (Math.abs(measuredDrift) > 100 && Math.abs(measuredDrift) < 3000) {
+          dynamicOffset = Math.round(dynamicOffset * 0.7 + measuredDrift * 0.3)
+        }
       }
+      lastPollProgressMs = data.progress_ms
+      lastPollTime = Date.now()
+      progressMs = data.progress_ms
     }
-    lastPollProgressMs = data.progress_ms
-    lastPollTime = Date.now()
-    progressMs = data.progress_ms
 
     // reset pause timer
     pausedAt = null
@@ -838,12 +933,13 @@ let lastDisplayedSecond = -1
 
 function tickProgress() {
   if (!isPlaying || durationMs === 0) return
+  if (isScrubbing) return   // the drag owns the bar until it's released
 
   const elapsed = Date.now() - lastServerSync
   const estimated = progressMs + elapsed
   const capped = Math.min(estimated, durationMs)
 
-  progressBar.style.width = `${(capped / durationMs) * 100}%`
+  paintProgress(capped)
 
   // the clock only changes once a second — don't rewrite it on every tick
   const second = Math.floor(capped / 1000)

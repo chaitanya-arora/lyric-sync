@@ -425,6 +425,16 @@ def playback():
         r = spotify_post(f"{SPOTIFY_API_URL}/me/player/next")
     elif action == 'previous':
         r = spotify_post(f"{SPOTIFY_API_URL}/me/player/previous")
+    elif action == 'seek':
+        position_ms = request.json.get('position_ms')
+        # bool is an int subclass, so reject it explicitly
+        if isinstance(position_ms, bool) or not isinstance(position_ms, int):
+            return jsonify({'error': 'position_ms must be an integer'}), 400
+        if position_ms < 0:
+            return jsonify({'error': 'position_ms must not be negative'}), 400
+        r = spotify_put(
+            f"{SPOTIFY_API_URL}/me/player/seek?position_ms={position_ms}"
+        )
     else:
         return jsonify({'error': 'Invalid action'}), 400
 

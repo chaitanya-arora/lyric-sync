@@ -20,22 +20,14 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
       - name: Lint (flake8, non-blocking on style, blocking on errors)
         run: |
-          pip install flake8
           # Fail only on syntax errors / undefined names — keep style warnings non-blocking for now
           flake8 backend --select=E9,F63,F7,F82 --show-source --statistics
 
-      - name: Smoke test — app imports and Flask instance loads
-        working-directory: backend
-        run: |
-          python -c "
-          import app
-          assert app.app is not None, 'Flask app object not found'
-          client = app.app.test_client()
-          resp = client.get('/')
-          assert resp.status_code == 200, f'Home route failed: {resp.status_code}'
-          print('Smoke test passed: app boots and / returns 200')
-          "
+      - name: Run unit and route tests
+        run: pytest backend/tests/ -v

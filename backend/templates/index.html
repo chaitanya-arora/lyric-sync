@@ -36,7 +36,7 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
         Search
       </div>
-      <div class="sidebar-link coming-soon" data-page="recent">
+      <div class="sidebar-link" id="recent-tab" data-page="recent">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
         Recently Translated
       </div>
@@ -224,6 +224,19 @@
       <div id="coming-soon-title">Coming Soon!</div>
       <div id="coming-soon-sub">This page is under construction...</div>
       <button onclick="closeModal()">Got it</button>
+    </div>
+  </div>
+
+  <!-- recently played -->
+  <div id="recent-modal" style="display:none;">
+    <div id="recent-card">
+      <div id="recent-header">
+        <div id="recent-title">Recently Played</div>
+        <button id="recent-close" onclick="closeRecent()" aria-label="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div id="recent-list"></div>
     </div>
   </div>
 

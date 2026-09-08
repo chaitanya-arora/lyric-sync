@@ -78,7 +78,7 @@ def playback(client, spotify, monkeypatch):
     calls = []
 
     def record(url, **kwargs):
-        calls.append(url)
+        calls.append((url, kwargs.get('json')))
         return FakeResponse(204)
 
     monkeypatch.setattr(spotify, 'spotify_put', record)
@@ -90,14 +90,14 @@ def test_seek_forwards_the_position(playback):
     client, calls = playback
     resp = client.post('/playback', json={'action': 'seek', 'position_ms': 42000})
     assert resp.status_code == 200
-    assert calls[-1].endswith('/me/player/seek?position_ms=42000')
+    assert calls[-1][0].endswith('/me/player/seek?position_ms=42000')
 
 
 def test_seek_to_zero_is_allowed(playback):
     """Rewinding to the very start is a legitimate seek, not a falsy value."""
     client, calls = playback
     assert client.post('/playback', json={'action': 'seek', 'position_ms': 0}).status_code == 200
-    assert calls[-1].endswith('position_ms=0')
+    assert calls[-1][0].endswith('position_ms=0')
 
 
 @pytest.mark.parametrize('bad_position', [
@@ -279,3 +279,107 @@ def test_successful_command_does_not_look_up_devices(client, spotify_with):
     assert resp.status_code == 200
     assert 'woke_device' not in resp.get_json()
     assert [c for c in calls if c[0] == 'GET'] == []
+
+
+# --- /recently-played ---
+
+@pytest.fixture
+def history(client, spotify, monkeypatch):
+    """Stub the recently-played feed. Spotify returns newest first."""
+    def setup(items):
+        monkeypatch.setattr(spotify, 'spotify_get',
+                            lambda url, **kw: FakeResponse(200, {'items': items}))
+        return client
+    return setup
+
+
+def played(track_id, name, at=None):
+    return {'track': make_track(track_id, name), 'played_at': at}
+
+
+def songs_from(resp):
+    return [t['song'] for t in resp.get_json()['tracks']]
+
+
+def test_history_is_newest_first(history):
+    """Spotify's own order — the panel shows most recent at the top."""
+    client = history([played('C', 'Third'), played('B', 'Second'), played('A', 'First')])
+    assert songs_from(client.get('/recently-played')) == ['Third', 'Second', 'First']
+
+
+def test_history_collapses_repeat_plays(history):
+    """A track played three times is one entry, kept at its most recent spot."""
+    client = history([played('A', 'On Repeat'), played('A', 'On Repeat'),
+                      played('B', 'Something Else'), played('A', 'On Repeat')])
+    assert songs_from(client.get('/recently-played')) == ['On Repeat', 'Something Else']
+
+
+def test_history_carries_what_the_panel_needs(history):
+    client = history([played('A', 'A Song', at='2026-09-08T21:00:00Z')])
+    track = client.get('/recently-played').get_json()['tracks'][0]
+    assert track['track_id'] == 'A'
+    assert track['artist'] == 'An Artist'
+    assert track['played_at'] == '2026-09-08T21:00:00Z'
+    assert track['album_art'].endswith('/A')
+
+
+def test_history_skips_entries_with_no_track_id(history):
+    """Local files and podcast episodes come through without a usable id."""
+    broken = {'track': {'id': None, 'name': 'Local File', 'artists': [],
+                        'album': {'images': []}, 'duration_ms': 0}}
+    client = history([broken, played('A', 'A Real Song')])
+    assert songs_from(client.get('/recently-played')) == ['A Real Song']
+
+
+def test_history_is_not_cacheable(history):
+    client = history([played('A', 'A Song')])
+    assert client.get('/recently-played').headers.get('Cache-Control') == 'no-store'
+
+
+def test_history_survives_a_spotify_failure(client, spotify, monkeypatch):
+    """An empty list beats a 500 — the panel just shows nothing."""
+    monkeypatch.setattr(spotify, 'spotify_get', lambda url, **kw: FakeResponse(503))
+    resp = client.get('/recently-played')
+    assert resp.status_code == 200
+    assert resp.get_json()['tracks'] == []
+
+
+def test_history_requires_authentication(client):
+    assert client.get('/recently-played').status_code == 401
+
+
+# --- /playback: play a specific track ---
+
+def test_play_track_sends_the_right_uri(playback):
+    client, calls = playback
+    resp = client.post('/playback', json={'action': 'play_track', 'track_id': '4cOdK2wGLETKBW3PvgPWqT'})
+    assert resp.status_code == 200
+    url, body = calls[-1]
+    assert url.endswith('/me/player/play')
+    assert body == {'uris': ['spotify:track:4cOdK2wGLETKBW3PvgPWqT']}
+
+
+@pytest.mark.parametrize('bad_id', [
+    None,                       # missing
+    '',                         # empty
+    123,                        # not a string
+    'abc def',                  # whitespace
+    'abc/../../v1/me/player',   # path traversal into the URI
+    'abc"]}',                   # trying to break out of the JSON body
+])
+def test_play_track_rejects_bad_ids(playback, bad_id):
+    client, calls = playback
+    resp = client.post('/playback', json={'action': 'play_track', 'track_id': bad_id})
+    assert resp.status_code == 400
+    assert calls == [], f'{bad_id!r} was forwarded to Spotify'
+
+
+def test_play_track_wakes_an_idle_device_without_resuming_the_old_song(client, spotify_with):
+    """Transferring with play=True would restart whatever was paused, not the
+    track that was actually clicked."""
+    calls = spotify_with([PHONE], [NO_ACTIVE_DEVICE, FakeResponse(204)])
+    resp = client.post('/playback', json={'action': 'play_track', 'track_id': 'abc123'})
+    assert resp.status_code == 200
+    assert transfers(calls) == [{'device_ids': ['PHONE'], 'play': False}]
+    plays = [body for _, url, body in calls if url.endswith('/me/player/play')]
+    assert plays == [{'uris': ['spotify:track:abc123']}] * 2, plays

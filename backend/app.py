@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 import os
 import requests
 import urllib.parse
+import re
 import json
 
 load_dotenv()
@@ -410,7 +411,56 @@ def context():
     return payload
 
 
-PLAYBACK_ACTIONS = ('play', 'pause', 'next', 'previous', 'seek')
+RECENT_HISTORY_LIMIT = 50   # Spotify's maximum for recently-played
+
+
+@app.route('/recently-played')
+def recently_played():
+    """Listening history, newest first, for the Recently Played panel."""
+    access_token = get_access_token()
+    if not access_token:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    res = spotify_get(
+        f"{SPOTIFY_API_URL}/me/player/recently-played"
+        f"?limit={RECENT_HISTORY_LIMIT}"
+    )
+    if res is None or res.status_code != 200:
+        return jsonify({'tracks': []})
+
+    try:
+        items = res.json().get('items') or []
+    except ValueError:
+        return jsonify({'tracks': []})
+
+    tracks = []
+    seen = set()
+    for item in items:
+        track = item.get('track') or {}
+        track_id = track.get('id')
+        # Spotify repeats a track for every play; keep only the newest, which
+        # comes first, so the list reads as distinct songs rather than a log.
+        if not track_id or track_id in seen:
+            continue
+        seen.add(track_id)
+        tracks.append({
+            'song': track['name'],
+            'artist': ', '.join([a['name'] for a in track['artists']]),
+            'album_art': track['album']['images'][0]['url'] if track['album']['images'] else None,
+            'duration_ms': track['duration_ms'],
+            'track_id': track_id,
+            'played_at': item.get('played_at'),
+        })
+
+    payload = jsonify({'tracks': tracks})
+    payload.headers['Cache-Control'] = 'no-store'
+    return payload
+
+
+PLAYBACK_ACTIONS = ('play', 'pause', 'next', 'previous', 'seek', 'play_track')
+
+# Spotify track ids are base62; anything else has no business in a track URI
+TRACK_ID_PATTERN = re.compile(r'^[A-Za-z0-9]{1,64}$')
 
 
 def spotify_error_reason(response):
@@ -479,6 +529,11 @@ def playback():
     if action not in PLAYBACK_ACTIONS:
         return jsonify({'error': 'Invalid action'}), 400
 
+    track_id = request.json.get('track_id')
+    if action == 'play_track':
+        if not isinstance(track_id, str) or not TRACK_ID_PATTERN.match(track_id):
+            return jsonify({'error': 'track_id must be a Spotify track id'}), 400
+
     position_ms = request.json.get('position_ms')
     if action == 'seek':
         # bool is an int subclass, so reject it explicitly
@@ -496,6 +551,11 @@ def playback():
             return spotify_post(f"{SPOTIFY_API_URL}/me/player/next")
         if action == 'previous':
             return spotify_post(f"{SPOTIFY_API_URL}/me/player/previous")
+        if action == 'play_track':
+            return spotify_put(
+                f"{SPOTIFY_API_URL}/me/player/play",
+                json={'uris': [f'spotify:track:{track_id}']}
+            )
         return spotify_put(
             f"{SPOTIFY_API_URL}/me/player/seek?position_ms={position_ms}"
         )

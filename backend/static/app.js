@@ -648,6 +648,115 @@ function buildQueueItem(track, direction, num) {
 }
 
 // ─────────────────────────────────────────
+//  RECENTLY PLAYED
+// ─────────────────────────────────────────
+
+const recentModal = document.getElementById('recent-modal')
+const recentList = document.getElementById('recent-list')
+
+const PLAY_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"/></svg>'
+
+function recentMessage(text) {
+  recentList.innerHTML = ''
+  const message = document.createElement('div')
+  message.className = 'recent-empty'
+  message.textContent = text
+  recentList.appendChild(message)
+}
+
+function buildRecentItem(track) {
+  const row = document.createElement('div')
+  row.className = 'recent-item'
+  if (track.track_id === currentTrackId) row.classList.add('playing')
+  row.title = `Play ${track.song}`
+
+  const thumb = document.createElement('div')
+  thumb.className = 'recent-thumb'
+  if (track.album_art) {
+    const art = document.createElement('img')
+    art.src = track.album_art
+    art.alt = ''
+    thumb.appendChild(art)
+  }
+
+  // song and artist are set with textContent, not innerHTML — they're names
+  // that came from Spotify, and a track called <img onerror=...> is legal
+  const info = document.createElement('div')
+  info.className = 'recent-info'
+  const song = document.createElement('div')
+  song.className = 'recent-song'
+  song.textContent = track.song
+  const artist = document.createElement('div')
+  artist.className = 'recent-artist'
+  artist.textContent = track.artist
+  info.append(song, artist)
+
+  const play = document.createElement('div')
+  play.className = 'recent-play'
+  play.innerHTML = PLAY_ICON
+
+  row.append(thumb, info, play)
+  row.addEventListener('click', () => playTrack(track))
+  return row
+}
+
+function renderRecent(tracks) {
+  if (!tracks.length) {
+    recentMessage('Nothing here yet — play something on Spotify.')
+    return
+  }
+  recentList.innerHTML = ''
+  tracks.forEach(track => recentList.appendChild(buildRecentItem(track)))
+}
+
+async function playTrack(track) {
+  closeRecent()
+  try {
+    const result = await postPlayback({ action: 'play_track', track_id: track.track_id })
+    if (!result.ok) {
+      reportPlaybackProblem(result)
+      return
+    }
+    setTimeout(fetchNowPlaying, 400)
+  } catch (e) {
+    console.error('Play track error:', e)
+    showToast(UNREACHABLE)
+  }
+}
+
+async function openRecent() {
+  recentModal.style.display = 'flex'
+  recentMessage('Loading…')
+  try {
+    const res = await fetch('/recently-played')
+    if (res.status === 401) {
+      recentMessage('Connect Spotify to see your listening history.')
+      return
+    }
+    if (!res.ok) throw new Error(`recently-played: ${res.status}`)
+    const data = await res.json()
+    renderRecent(data.tracks || [])
+  } catch (e) {
+    console.error('Recently played error:', e)
+    recentMessage("Couldn't load your history — try again in a moment.")
+  }
+}
+
+function closeRecent() {
+  recentModal.style.display = 'none'
+}
+
+document.getElementById('recent-tab').addEventListener('click', openRecent)
+
+recentModal.addEventListener('click', function (e) {
+  if (e.target === this) closeRecent()
+})
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && recentModal.style.display !== 'none') closeRecent()
+})
+
+// ─────────────────────────────────────────
 //  COMING SOON MODAL
 // ─────────────────────────────────────────
 

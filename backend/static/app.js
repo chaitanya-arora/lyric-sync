@@ -16,8 +16,6 @@ let currentContentState = null // 'lyrics' | 'no-lyrics' | 'english' | 'loading'
 const translation_cache_js = {}
 
 // ── pause > 60s → welcome screen ──
-let pausedAt = null
-let pauseTimerFired = false
 
 // ── prefetch: next-track lyrics ──
 let prefetchedTrackId = null     // track_id we already prefetched
@@ -661,8 +659,6 @@ async function disconnectSpotify() {
   currentLyrics = []
   currentLineIndex = -1
   lastKnownData = null
-  pausedAt = null
-  pauseTimerFired = false
   isPlaying = false
   // close settings modal
   closeSettings()
@@ -731,7 +727,7 @@ async function fetchNowPlaying() {
     const data = await response.json()
 
     // ── PAUSED or NOTHING PLAYING ──
-    // Freeze everything exactly as-is. After 60s, show the welcome screen.
+    // Freeze everything exactly as-is, for as long as it stays paused.
     if ((!data.is_playing && data.song) || (!data.playing && !data.song)) {
       isPlaying = false
       updatePlayPauseIcon(false)
@@ -749,14 +745,11 @@ async function fetchNowPlaying() {
         updateBottomBar(lastKnownData)
       }
 
-      // start 60s timer on first paused tick
-      if (!pausedAt) {
-        pausedAt = Date.now()
-        pauseTimerFired = false
-      }
-
-      if (!pauseTimerFired && Date.now() - pausedAt > 60000) {
-        pauseTimerFired = true
+      // A pause used to fall back to the welcome screen after 60s, which read
+      // as being disconnected and sent you to Spotify to start again. Stay put
+      // instead. The exception is having nothing to stay on: with no track
+      // known yet, the welcome screen is the only thing to show.
+      if (!lastKnownData && welcomeScreen.style.display === 'none') {
         showWelcomeScreen()
       }
 
@@ -792,10 +785,6 @@ async function fetchNowPlaying() {
       progressMs = data.progress_ms
     }
 
-    // reset pause timer
-    pausedAt = null
-    pauseTimerFired = false
-
     updatePlayPauseIcon(true)
     updateProgressBar(progressMs, durationMs)
     updateTopBar(data)
@@ -803,7 +792,7 @@ async function fetchNowPlaying() {
 
 
 
-    // if welcome was showing (paused > 12s), fade it out and restore everything
+    // welcome screen may be up (nothing had played yet) — restore the player
     if (!welcomeScreen.classList.contains('hidden') && welcomeScreen.style.display !== 'none') {
       hideWelcomeScreen(() => {
         topBar.style.display = 'flex'

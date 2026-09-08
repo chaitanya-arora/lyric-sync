@@ -1,5 +1,6 @@
 // ── state ──
 let currentTrackId = null
+let localRecent = []          // tracks we saw finish, newest first
 let currentLyrics = []
 let currentLineIndex = -1
 let progressMs = 0
@@ -385,13 +386,74 @@ async function togglePlayPause() {
 async function fetchContext() {
   if (!isLoggedIn) return
   try {
-    const res = await fetch('/context')
+    // tell the server what's playing so it can keep it out of "recently played"
+    const url = currentTrackId
+      ? `/context?current=${encodeURIComponent(currentTrackId)}`
+      : '/context'
+    const res = await fetch(url)
     if (!res.ok) return
     const data = await res.json()
-    renderContext(data.previous || [], data.next || [])
+    lastServerContext = { previous: data.previous || [], next: data.next || [] }
+    renderMergedContext()
   } catch (e) {
     console.error('Context error:', e)
   }
+}
+
+const RECENT_DISPLAY = 2      // how many previous tracks the sidebar shows
+const MAX_LOCAL_RECENT = 5    // keep a little history spare for de-duping
+
+// We watch every track change ourselves, so we know what just finished long
+// before Spotify's feed does — and in the case Spotify drops entirely (a track
+// skipped before its minimum play time) we still know it.
+function rememberRecent(track) {
+  if (!track || !track.track_id) return
+  localRecent = [
+    {
+      song: track.song,
+      artist: track.artist,
+      album_art: track.album_art,
+      duration_ms: track.duration_ms,
+      track_id: track.track_id,
+      direction: 'previous'
+    },
+    ...localRecent.filter(t => t.track_id !== track.track_id)
+  ].slice(0, MAX_LOCAL_RECENT)
+}
+
+// Local history first (it's fresher), Spotify's list behind it, de-duped by
+// track. The server sends oldest-first, so flip it in and flip the result back.
+function mergeRecent(serverPrev) {
+  const merged = []
+  const seen = new Set()
+
+  for (const track of [...localRecent, ...[...serverPrev].reverse()]) {
+    if (!track.track_id || seen.has(track.track_id)) continue
+    if (track.track_id === currentTrackId) continue
+    seen.add(track.track_id)
+    merged.push(track)
+    if (merged.length === RECENT_DISPLAY) break
+  }
+
+  return merged.reverse()
+}
+
+let lastServerContext = { previous: [], next: [] }
+
+function renderMergedContext() {
+  renderContext(mergeRecent(lastServerContext.previous), lastServerContext.next)
+}
+
+// Spotify only logs a track as recently-played once it has finished, and the
+// feed lags behind that. Ask immediately on a track change, then once more a
+// few seconds later to pick up Spotify's version when it lands.
+let contextFollowUp = null
+
+function refreshContextSoon() {
+  renderMergedContext()   // paint local history now, don't wait on the network
+  fetchContext()
+  clearTimeout(contextFollowUp)
+  contextFollowUp = setTimeout(fetchContext, 5000)
 }
 
 function renderContext(prev, next) {
@@ -495,6 +557,7 @@ async function disconnectSpotify() {
   // reset all client state
   isLoggedIn = false
   currentTrackId = null
+  localRecent = []
   currentLyrics = []
   currentLineIndex = -1
   lastKnownData = null
@@ -601,6 +664,7 @@ async function fetchNowPlaying() {
 
     // ── PLAYING ──
     isPlaying = true
+    const outgoingTrack = lastKnownData   // what we were on before this poll
     lastKnownData = data
     durationMs = data.duration_ms
     lastServerSync = Date.now()
@@ -663,6 +727,10 @@ async function fetchNowPlaying() {
     }
 
     // ── NEW TRACK ──
+    // Record the outgoing track ourselves rather than waiting on Spotify.
+    if (outgoingTrack && outgoingTrack.track_id !== data.track_id) {
+      rememberRecent(outgoingTrack)
+    }
     currentTrackId = data.track_id
     currentLyrics = []
     currentLineIndex = -1
@@ -670,6 +738,7 @@ async function fetchNowPlaying() {
     langBadge.style.display = 'none'
     dynamicOffset = 0           // reset drift for new track
     prefetchNextTrack()         // immediately prefetch next-in-queue in case of skip
+    refreshContextSoon()        // don't make the sidebar wait for the 10s poll
 
     showContent('message', {
       icon: '⏳',

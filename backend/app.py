@@ -25,6 +25,9 @@ SPOTIFY_API_URL = 'https://api.spotify.com/v1'
 
 SCOPE = 'user-read-currently-playing user-read-playback-state user-modify-playback-state user-read-recently-played'
 
+# how many 'recently played' tracks the sidebar shows
+RECENT_LIMIT = 2
+
 import sqlite3
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'translations.db')
@@ -349,8 +352,12 @@ def context():
     if not access_token:
         return jsonify({'error': 'Not authenticated'}), 401
 
+    current_track_id = request.args.get('current')
+
     queue_res = spotify_get(f"{SPOTIFY_API_URL}/me/player/queue")
-    recent_res = spotify_get(f"{SPOTIFY_API_URL}/me/player/recently-played?limit=2")
+    # Fetch a wider window than we display: the filters below drop entries, and
+    # Spotify frequently repeats the same track across consecutive entries.
+    recent_res = spotify_get(f"{SPOTIFY_API_URL}/me/player/recently-played?limit=10")
 
     next_tracks = []
     if queue_res and queue_res.status_code == 200:
@@ -368,9 +375,23 @@ def context():
 
     prev_tracks = []
     if recent_res and recent_res.status_code == 200:
-        items = recent_res.json().get('items', [])[:2]
-        for item in reversed(items):
+        picked = []
+        seen = set()
+        for item in recent_res.json().get('items', []):
             track = item['track']
+            # Spotify logs the playing track on replays and seeks — it belongs
+            # in the player, not in 'Recently Played'.
+            if track['id'] == current_track_id:
+                continue
+            if track['id'] in seen:
+                continue
+            seen.add(track['id'])
+            picked.append(track)
+            if len(picked) == RECENT_LIMIT:
+                break
+
+        # oldest first, so the list reads chronologically down into 'Playing Next'
+        for track in reversed(picked):
             prev_tracks.append({
                 'song': track['name'],
                 'artist': ', '.join([a['name'] for a in track['artists']]),
@@ -380,10 +401,13 @@ def context():
                 'direction': 'previous'
             })
 
-    return jsonify({
+    payload = jsonify({
         'previous': prev_tracks,
         'next': next_tracks
     })
+    # polled endpoint — a cached copy would defeat the point
+    payload.headers['Cache-Control'] = 'no-store'
+    return payload
 
 
 @app.route('/playback', methods=['POST'])

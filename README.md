@@ -1,9 +1,11 @@
 # LyricSync 🎵
-### multiculturalism through music
+### Multiculturalism through music
 
 A web app that automatically translates song lyrics in real time as you listen on Spotify, so you can enjoy music in any language without missing a word.
 
-Grew up loving Bollywood music without always understanding the lyrics. I wanted a way to *feel* a song, not just translate it, and wanted it to live inside how I already listen to music. Built for language learners, music lovers, and anyone who's ever felt an emotional connection to a song they couldn't fully understand.
+Grew up loving Bollywood music without always understanding the lyrics. I wanted a way to *feel* a song, not just translate it, and wanted it to live inside how I already listen to music. 
+
+Built for language learners, music lovers, and anyone who's ever felt an emotional connection to a song they couldn't fully understand.
 
 ---
 
@@ -102,9 +104,11 @@ python app.py
 
 ## Project status
 
-🟢 MVP complete and deployed at [lyric-sync-production.up.railway.app](https://lyric-sync-production.up.railway.app), served through Gunicorn behind a GitHub Actions CI pipeline (lint + smoke test on every push to `main`).
+🟢 MVP complete and deployed at [lyric-sync-production.up.railway.app](https://lyric-sync-production.up.railway.app), served through Gunicorn behind a GitHub Actions CI pipeline (lint + automated test suite on every push to `main`).
 
 While I use the web app daily, I'm unable to share it more widely right now since Spotify caps development mode apps at 5 manually approved users at a time. The next steps involve exploring different options and migrating away from Spotify's API, since that's the only way around the user cap. Future plans also include developing LyricSync into a mobile app, and looking into making LyricSync the actual music player itself, so full playback sessions can be controlled from within the app.
+
+Another planned feature is an Explore tab for music discovery, the piece most similar lyric translation tools are missing. It would look at what you're currently playing, your recently played tracks, and your queue, then recommend new songs in the same language based on artist and genre similarity, with a one-tap option to add a recommendation straight to your Spotify queue.
 
 ---
 

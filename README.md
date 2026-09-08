@@ -104,7 +104,7 @@ python app.py
 
 🟢 MVP complete and deployed at [lyric-sync-production.up.railway.app](https://lyric-sync-production.up.railway.app), served through Gunicorn behind a GitHub Actions CI pipeline (lint + smoke test on every push to `main`).
 
-Currently paused as a build-out priority. The next planned step is below. In the meantime I'm applying what I learned here (rapid UX research, full-stack ownership, deployment and CI practices) to a new project.
+While I use the web app daily, I'm unable to share it more widely right now since Spotify caps development mode apps at 5 manually approved users at a time. The next steps involve exploring different options and migrating away from Spotify's API, since that's the only way around the user cap. Future plans also include developing LyricSync into a mobile app, and looking into making LyricSync the actual music player itself, so full playback sessions can be controlled from within the app.
 
 ---
 

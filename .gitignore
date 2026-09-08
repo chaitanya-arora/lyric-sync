@@ -12,3 +12,6 @@ venv/
 
 # VS Code
 .vscode/
+
+# Local translation cache database
+backend/translations.db

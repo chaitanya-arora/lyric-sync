@@ -50,7 +50,7 @@ Tools with similar real-time translation existed, but the ones I found had weak 
 | Translation | DeepL API |
 | Cache | SQLite |
 | Hosting | Railway |
-| CI | GitHub Actions (lint + smoke test on every push) |
+| CI | GitHub Actions (lint + automated test suite on every push) |
 
 ---
 
@@ -114,6 +114,8 @@ Another planned feature is an Explore tab for music discovery, the piece most si
 
 ## Technical decisions
 
+**Tech stack choice:** This was my first real end-to-end project, so I chose Flask and vanilla JavaScript deliberately, something lightweight that built on skills I already had, rather than learning a new framework and full-stack development at the same time. Python was the language I was already most comfortable in, so Flask felt like the organic choice once I'd decided on that.
+
 **Translation provider:** For the MVP, translation targets English only. DeepL was chosen over Google Translate for noticeably more natural output, particularly for European languages like French.
 
 > **Note on non-Latin scripts:** Songs in languages that use non-Latin scripts (e.g. Devanagari, Hangul, Kanji) generally translate well via DeepL. However, romanised versions of these languages, where non-Latin words are written in Latin characters, can be unreliable across all translation APIs, since language detection struggles with short Latin-script phrases that could belong to multiple languages. Improved handling for romanised lyrics is planned for a future version.
@@ -125,6 +127,16 @@ Another planned feature is an Explore tab for music discovery, the piece most si
 **Known constraint:** Spotify apps in development mode are capped at a small, fixed number of approved users. This is a platform-level limitation, not something fixable in application code, and it's the main reason the project is paused rather than actively expanding. Rather than build further on a foundation that can't scale to the people I'd actually want to share it with, I made the call to step back, apply for extended access, and in the meantime take what I learned here into a new project.
 
 **Planned next step:** Migrating from Spotify's API to a combination of iTunes/Deezer (for metadata) and the YouTube API (for playback), which would remove the user cap entirely.
+
+---
+
+## Testing & deployment
+
+Backend logic and API routes are covered by a pytest suite, run automatically through a GitHub Actions CI pipeline on every push, so I know quickly if a change breaks something rather than finding out later.
+
+The app auto-deploys to Railway on every commit to `main`, so what's live always reflects the latest tested code.
+
+Beyond automated tests, I use LyricSync myself daily and have shared it with a few friends. That real usage surfaces things automated tests don't catch, actual edge cases, and awkward UX flows I wouldn't have noticed just reading the code.
 
 ---
 

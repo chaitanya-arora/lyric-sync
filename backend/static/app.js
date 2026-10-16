@@ -722,6 +722,117 @@ function toggleFullscreen() {
 }
 
 // ─────────────────────────────────────────
+//  YOUR LIBRARY
+// ─────────────────────────────────────────
+
+let libraryItems = []
+let libraryFilter = null      // 'playlist' | 'album' | 'show' | null for all
+const libraryList = document.getElementById('library-list')
+
+function libraryMessage(text, action) {
+  libraryList.innerHTML = ''
+  const message = document.createElement('div')
+  message.className = 'library-message'
+  message.textContent = text
+  if (action) {
+    message.appendChild(document.createElement('br'))
+    message.appendChild(action)
+  }
+  libraryList.appendChild(message)
+}
+
+function renderLibrary() {
+  const items = libraryFilter
+    ? libraryItems.filter(item => item.kind === libraryFilter)
+    : libraryItems
+  if (!items.length) {
+    libraryMessage(libraryItems.length
+      ? 'Nothing saved here yet.'
+      : 'Your playlists, albums and podcasts from Spotify will show up here.')
+    return
+  }
+  libraryList.innerHTML = ''
+  items.forEach(item => {
+    // names come from Spotify and other users — textContent only
+    const row = document.createElement('button')
+    row.type = 'button'
+    row.className = `library-item ${item.kind}`
+    row.title = `Play ${item.name}`
+
+    const art = document.createElement('img')
+    art.className = 'library-art'
+    art.alt = ''
+    art.loading = 'lazy'
+    if (item.image) art.src = item.image
+
+    const info = document.createElement('div')
+    info.className = 'library-info'
+    const name = document.createElement('div')
+    name.className = 'library-name'
+    name.textContent = item.name
+    const sub = document.createElement('div')
+    sub.className = 'library-sub'
+    sub.textContent = item.subtitle
+    info.append(name, sub)
+
+    row.append(art, info)
+    row.addEventListener('click', () => playContext(item))
+    libraryList.appendChild(row)
+  })
+}
+
+async function loadLibrary() {
+  libraryMessage('Loading your library…')
+  try {
+    const res = await fetch('/library')
+    if (res.status === 403) {
+      const reason = (await res.json().catch(() => ({}))).reason
+      if (reason === 'reconnect') {
+        // sessions from before Your Library existed lack its permissions
+        const button = document.createElement('a')
+        button.href = '/login'
+        button.textContent = 'Reconnect Spotify'
+        libraryMessage('LyricSync needs a new permission to show your library.', button)
+        return
+      }
+      libraryMessage("Spotify isn't sharing your library right now.")
+      return
+    }
+    if (!res.ok) throw new Error(`library: ${res.status}`)
+    libraryItems = (await res.json()).items || []
+    renderLibrary()
+  } catch (e) {
+    console.warn('Library error:', e)
+    libraryMessage("Couldn't load your library — try again in a moment.")
+  }
+}
+
+document.querySelectorAll('#library-chips .chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    // clicking the active filter again shows everything
+    libraryFilter = libraryFilter === chip.dataset.kind ? null : chip.dataset.kind
+    document.querySelectorAll('#library-chips .chip').forEach(other => {
+      other.setAttribute('aria-pressed', String(other.dataset.kind === libraryFilter))
+    })
+    renderLibrary()
+  })
+})
+
+async function playContext(item) {
+  try {
+    const result = await postPlayback({ action: 'play_context', context_uri: item.uri })
+    if (!result.ok) {
+      reportPlaybackProblem(result)
+      return
+    }
+    location.hash = '#/now-playing'
+    setTimeout(fetchNowPlaying, 600)
+  } catch (e) {
+    showToast(UNREACHABLE)
+  }
+}
+
+// ─────────────────────────────────────────
 //  PAGES
 // ─────────────────────────────────────────
 
@@ -1155,6 +1266,8 @@ async function disconnectSpotify() {
 function signedOut() {
   isLoggedIn = false
   accessProblem = null
+  libraryItems = []
+  libraryList.innerHTML = ''
   currentTrackId = null
   currentTrackData = null
   localRecent = []
@@ -1310,6 +1423,7 @@ async function fetchNowPlaying() {
       accessProblem = null
       isLoggedIn = true
       loadPrefs()
+      loadLibrary()
       showBars()
       fetchContext()
     }

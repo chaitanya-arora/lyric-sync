@@ -713,3 +713,92 @@ def test_now_playing_reports_shuffle_repeat_and_device(client, spotify, monkeypa
     assert data['repeat'] == 'context'
     assert data['device'] == {'id': 'A', 'name': 'Phone', 'volume_percent': 40,
                               'supports_volume': False}
+
+
+# --- Your Library ---
+
+LIBRARY_FEEDS = {
+    'playlists': {'items': [
+        {'name': 'Road Trip', 'uri': 'spotify:playlist:P1',
+         'owner': {'display_name': 'Cherry'},
+         'images': [{'url': 'https://i.scdn.co/big'}, {'url': 'https://i.scdn.co/mid'},
+                    {'url': 'https://i.scdn.co/small'}]},
+        None,   # Spotify really does return nulls here for some deleted playlists
+    ]},
+    'albums': {'items': [{'album': {'name': 'An Album', 'uri': 'spotify:album:A1',
+                                    'artists': [{'name': 'X'}, {'name': 'Y'}],
+                                    'images': [{'url': 'https://i.scdn.co/only'}]}}]},
+    'shows': {'items': [{'show': {'name': 'A Podcast', 'uri': 'spotify:show:S1',
+                                  'publisher': 'Someone', 'images': []}}]},
+}
+
+
+@pytest.fixture
+def library_client(client, spotify, monkeypatch):
+    def fake_get(url, **kwargs):
+        kind = url.split('/me/')[1].split('?')[0]
+        return FakeResponse(200, LIBRARY_FEEDS[kind])
+    monkeypatch.setattr(spotify, 'spotify_get', fake_get)
+    return client
+
+
+def test_library_lists_playlists_albums_and_podcasts(library_client):
+    assert library_client.get('/library').get_json()['items'] == [
+        {'kind': 'playlist', 'uri': 'spotify:playlist:P1', 'name': 'Road Trip',
+         'subtitle': 'Playlist • Cherry', 'image': 'https://i.scdn.co/mid'},
+        {'kind': 'album', 'uri': 'spotify:album:A1', 'name': 'An Album',
+         'subtitle': 'Album • X, Y', 'image': 'https://i.scdn.co/only'},
+        {'kind': 'show', 'uri': 'spotify:show:S1', 'name': 'A Podcast',
+         'subtitle': 'Podcast • Someone', 'image': None},
+    ]
+
+
+def test_library_asks_old_sessions_to_reconnect(client, spotify, monkeypatch):
+    """Sessions from before Your Library don't have its permissions."""
+    body = {'error': {'status': 403, 'message': 'Insufficient client scope'}}
+    monkeypatch.setattr(spotify, 'spotify_get', lambda url, **kw: FakeResponse(403, body))
+    resp = client.get('/library')
+    assert resp.status_code == 403
+    assert resp.get_json()['reason'] == 'reconnect'
+
+
+def test_library_shows_what_it_can_when_one_feed_fails(client, spotify, monkeypatch):
+    def fake_get(url, **kwargs):
+        if 'albums' in url:
+            return FakeResponse(500)
+        return FakeResponse(200, LIBRARY_FEEDS[url.split('/me/')[1].split('?')[0]])
+    monkeypatch.setattr(spotify, 'spotify_get', fake_get)
+    kinds = [item['kind'] for item in client.get('/library').get_json()['items']]
+    assert kinds == ['playlist', 'show']
+
+
+def test_library_requires_authentication(client):
+    assert client.get('/library').status_code == 401
+
+
+def test_login_asks_for_the_library_and_email_permissions(client):
+    scope = parse_qs(urlparse(client.get('/login').headers['Location']).query)['scope'][0]
+    for permission in ('user-library-read', 'playlist-read-private', 'user-read-email'):
+        assert permission in scope.split()
+
+
+def test_play_context_starts_a_playlist(client, spotify, monkeypatch):
+    bodies = []
+    monkeypatch.setattr(spotify, 'spotify_put',
+                        lambda u, **kw: bodies.append(kw.get('json')) or FakeResponse(204))
+    client.post('/playback', json={'action': 'play_context',
+                                   'context_uri': 'spotify:playlist:P1'})
+    assert bodies == [{'context_uri': 'spotify:playlist:P1'}]
+
+
+@pytest.mark.parametrize('uri', [
+    'spotify:artist:A1',             # not something the card offers
+    'spotify:playlist:../../me',
+    'https://open.spotify.com/playlist/P1',
+    None,
+])
+def test_play_context_rejects_other_uris(playback, uri):
+    client, calls = playback
+    resp = client.post('/playback', json={'action': 'play_context', 'context_uri': uri})
+    assert resp.status_code == 400
+    assert calls == []

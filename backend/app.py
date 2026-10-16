@@ -39,7 +39,15 @@ SPOTIFY_API_URL = 'https://api.spotify.com/v1'
 # gunicorn kills it — and there are only two of them.
 SPOTIFY_TIMEOUT = 10
 
-SCOPE = 'user-read-currently-playing user-read-playback-state user-modify-playback-state user-read-recently-played'
+SCOPE = ' '.join([
+    'user-read-currently-playing',
+    'user-read-playback-state',
+    'user-modify-playback-state',
+    'user-read-recently-played',
+    'user-library-read',        # saved albums and podcasts, for Your Library
+    'playlist-read-private',    # private playlists, for Your Library
+    'user-read-email',          # the address shown in Settings
+])
 
 # how many 'recently played' tracks the sidebar shows
 RECENT_LIMIT = 2
@@ -328,6 +336,9 @@ def spotify_access_problem(response):
         return 'owner_premium_required'
     if 'not be registered' in message:
         return 'user_not_registered'
+    # a session from before a permission was added — signing in again fixes it
+    if 'scope' in message:
+        return 'reconnect'
     return 'forbidden'
 
 
@@ -561,8 +572,79 @@ def devices():
     return payload
 
 
+LIBRARY_LIMIT = 20   # per kind — the card shows a sidebar's worth
+
+
+def thumbnail(images):
+    """Spotify lists artwork largest first (640, 300, 64). The middle size is
+    sharp at the card's size on a retina screen without the full download."""
+    images = images or []
+    if not images:
+        return None
+    return images[1]['url'] if len(images) > 1 else images[0]['url']
+
+
+def library_items(kind, payload):
+    """One kind of Your Library entry, in the Figma's "Album • Artist" style."""
+    items = []
+    for entry in payload.get('items') or []:
+        if not entry:
+            continue
+        if kind == 'playlist':
+            owner = (entry.get('owner') or {}).get('display_name') or ''
+            name, subtitle, uri = entry.get('name'), f'Playlist • {owner}', entry.get('uri')
+            image = thumbnail(entry.get('images'))
+        elif kind == 'album':
+            album = entry.get('album') or {}
+            artists = ', '.join(a['name'] for a in album.get('artists') or [])
+            name, subtitle, uri = album.get('name'), f'Album • {artists}', album.get('uri')
+            image = thumbnail(album.get('images'))
+        else:
+            show = entry.get('show') or {}
+            name, subtitle, uri = show.get('name'), f"Podcast • {show.get('publisher') or ''}", show.get('uri')
+            image = thumbnail(show.get('images'))
+        if name and uri:
+            items.append({'kind': kind, 'uri': uri, 'name': name,
+                          'subtitle': subtitle.rstrip(' •'), 'image': image})
+    return items
+
+
+@app.route('/library')
+def library():
+    """Your Library: the account's playlists, saved albums and podcasts."""
+    if not get_access_token():
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    sources = [
+        ('playlist', f"{SPOTIFY_API_URL}/me/playlists?limit={LIBRARY_LIMIT}"),
+        ('album', f"{SPOTIFY_API_URL}/me/albums?limit={LIBRARY_LIMIT}"),
+        ('show', f"{SPOTIFY_API_URL}/me/shows?limit={LIBRARY_LIMIT}"),
+    ]
+    items = []
+    for kind, url in sources:
+        res = spotify_get(url)
+        if res is None or res.status_code == 401:
+            return jsonify({'error': 'Not authenticated'}), 401
+        if res.status_code == 403:
+            return jsonify({'error': 'Spotify refused access',
+                            'reason': spotify_access_problem(res)}), 403
+        if res.status_code != 200:
+            continue   # show what we can rather than nothing
+        try:
+            items += library_items(kind, res.json())
+        except (ValueError, KeyError, TypeError):
+            continue
+
+    payload = jsonify({'items': items})
+    payload.headers['Cache-Control'] = 'no-store'
+    return payload
+
+
 PLAYBACK_ACTIONS = ('play', 'pause', 'next', 'previous', 'seek', 'play_track',
-                    'shuffle', 'repeat', 'volume', 'transfer')
+                    'play_context', 'shuffle', 'repeat', 'volume', 'transfer')
+
+# what Your Library can start playing: a whole playlist, album or podcast
+CONTEXT_URI_PATTERN = re.compile(r'^spotify:(playlist|album|show):[A-Za-z0-9]{1,64}$')
 
 REPEAT_STATES = ('off', 'context', 'track')
 
@@ -648,6 +730,11 @@ def playback():
         if not isinstance(track_id, str) or not TRACK_ID_PATTERN.match(track_id):
             return jsonify({'error': 'track_id must be a Spotify track id'}), 400
 
+    context_uri = body.get('context_uri')
+    if action == 'play_context' and (not isinstance(context_uri, str)
+                                     or not CONTEXT_URI_PATTERN.match(context_uri)):
+        return jsonify({'error': 'context_uri must be a Spotify playlist, album or show'}), 400
+
     state = body.get('state')
     if action == 'shuffle' and not isinstance(state, bool):
         return jsonify({'error': 'state must be true or false'}), 400
@@ -686,6 +773,9 @@ def playback():
                 f"{SPOTIFY_API_URL}/me/player/play",
                 json={'uris': [f'spotify:track:{track_id}']}
             )
+        if action == 'play_context':
+            return spotify_put(f"{SPOTIFY_API_URL}/me/player/play",
+                               json={'context_uri': context_uri})
         if action == 'shuffle':
             return spotify_put(f"{SPOTIFY_API_URL}/me/player/shuffle",
                                params={'state': 'true' if state else 'false'})

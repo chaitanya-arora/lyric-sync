@@ -11,6 +11,11 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import app as app_module  # noqa: E402  (needs the path set above)
+import db  # noqa: E402
+
+# Storage tests run on SQLite always, and on Postgres too when
+# TEST_DATABASE_URL points at a database they're free to wipe (CI sets one).
+DATABASES = ['sqlite'] + (['postgres'] if os.getenv('TEST_DATABASE_URL') else [])
 
 
 @pytest.fixture
@@ -18,6 +23,23 @@ def client(monkeypatch):
     # CI has no .env, and sessions (OAuth state, logout) need a signing key
     monkeypatch.setattr(app_module.app, 'secret_key', 'test-secret')
     return app_module.app.test_client()
+
+
+@pytest.fixture(params=DATABASES)
+def database(request, monkeypatch, tmp_path):
+    """An empty database for one test, never the real cache."""
+    if request.param == 'postgres':
+        import psycopg
+        url = os.environ['TEST_DATABASE_URL']
+        with psycopg.connect(url) as conn:
+            conn.execute('DROP SCHEMA public CASCADE')
+            conn.execute('CREATE SCHEMA public')
+        monkeypatch.setattr(db, 'DATABASE_URL', url)
+    else:
+        monkeypatch.setattr(db, 'DATABASE_URL', None)
+        monkeypatch.setattr(db, 'SQLITE_PATH', str(tmp_path / 'test.db'))
+    db.init_db()
+    return request.param
 
 
 @pytest.fixture

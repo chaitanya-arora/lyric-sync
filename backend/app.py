@@ -7,6 +7,7 @@ import urllib.parse
 import re
 import json
 
+import db
 from romanised import detect_language
 
 load_dotenv()
@@ -42,33 +43,11 @@ SCOPE = 'user-read-currently-playing user-read-playback-state user-modify-playba
 # how many 'recently played' tracks the sidebar shows
 RECENT_LIMIT = 2
 
-import sqlite3
-
-DB_PATH = os.path.join(os.path.dirname(__file__), 'translations.db')
-
 # how long to trust "LRCLIB has no lyrics" before asking again — people add
 # lyrics to LRCLIB all the time
-LYRICS_MISS_TTL_HOURS = 6
+LYRICS_MISS_TTL_SECONDS = 6 * 60 * 60
 
-def init_db():
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS translations (
-                cache_key TEXT PRIMARY KEY,
-                lyrics_json TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        # tracks LRCLIB had nothing for, so a replay doesn't ask it again
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS lyrics_misses (
-                track_id TEXT PRIMARY KEY,
-                checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        conn.commit()
-
-init_db()
+db.init_db()
 
 
 def parse_lrc(lrc_text):
@@ -528,6 +507,17 @@ def recently_played():
     return payload
 
 
+# DeepL's target languages (GET /v2/languages?type=target), plus plain 'EN',
+# which DeepL still accepts and the app has always used
+TARGET_LANGUAGES = frozenset('''
+    AF AN AR AS AY AZ BA BE BG BN BR BS CA CS CY DA DE DE-CH DE-DE EL EN
+    EN-GB EN-US EO ES ES-419 ES-ES ET EU FA FI FR FR-CA FR-FR GA GL GN GU HA
+    HE HI HR HT HU HY ID IG IS IT JA JV KA KK KO KY LA LB LN LT LV MG MI MK
+    ML MN MR MS MT MY NB NE NL OC OM PA PL PS PT-BR PT-PT QU RO RU SA SK SL
+    SQ SR ST SU SV SW TA TE TG TH TK TL TN TR TS TT UK UR UZ VI WO XH YI ZH
+    ZH-HANS ZH-HANT ZU
+'''.split())
+
 PLAYBACK_ACTIONS = ('play', 'pause', 'next', 'previous', 'seek', 'play_track')
 
 # Spotify track ids are base62; anything else has no business in a track URI
@@ -694,9 +684,13 @@ def translate():
 
     if not track_id or not song or not artist:
         return jsonify({'error': 'song, artist and track_id parameters required'}), 400
+    # it's part of the cache key, so anything DeepL can't use would only
+    # fill the cache with junk
+    if target_lang not in TARGET_LANGUAGES:
+        return jsonify({'error': 'Unsupported target_lang'}), 400
 
     cache_key = f"{track_id}_{target_lang}"
-    with sqlite3.connect(DB_PATH) as conn:
+    with db.connect() as conn:
         row = conn.execute(
             'SELECT lyrics_json FROM translations WHERE cache_key = ?',
             (cache_key,)
@@ -709,9 +703,8 @@ def translate():
             })
 
         recent_miss = conn.execute(
-            'SELECT 1 FROM lyrics_misses WHERE track_id = ? '
-            'AND checked_at > datetime(\'now\', ?)',
-            (track_id, f'-{LYRICS_MISS_TTL_HOURS} hours')
+            'SELECT 1 FROM lyrics_misses WHERE track_id = ? AND checked_at > ?',
+            (track_id, db.now() - LYRICS_MISS_TTL_SECONDS)
         ).fetchone()
         if recent_miss:
             return jsonify({'translated': False, 'message': 'No lyrics found'})
@@ -724,12 +717,12 @@ def translate():
         return jsonify({'error': 'Lyrics service unavailable'}), 502
 
     if not lyrics_data.get('found'):
-        with sqlite3.connect(DB_PATH) as conn:
+        with db.connect() as conn:
             conn.execute(
-                'INSERT OR REPLACE INTO lyrics_misses (track_id) VALUES (?)',
-                (track_id,)
+                'INSERT INTO lyrics_misses (track_id, checked_at) VALUES (?, ?) '
+                'ON CONFLICT (track_id) DO UPDATE SET checked_at = excluded.checked_at',
+                (track_id, db.now())
             )
-            conn.commit()
         return jsonify({
             'translated': False,
             'message': lyrics_data.get('message', 'No lyrics found')
@@ -778,12 +771,12 @@ def translate():
             'detected_language': translations[i]['detected_source_language']
         })
 
-    with sqlite3.connect(DB_PATH) as conn:
+    with db.connect() as conn:
         conn.execute(
-            'INSERT OR REPLACE INTO translations (cache_key, lyrics_json) VALUES (?, ?)',
+            'INSERT INTO translations (cache_key, lyrics_json) VALUES (?, ?) '
+            'ON CONFLICT (cache_key) DO UPDATE SET lyrics_json = excluded.lyrics_json',
             (cache_key, json.dumps(combined))
         )
-        conn.commit()
 
     return jsonify({
         'translated': True,

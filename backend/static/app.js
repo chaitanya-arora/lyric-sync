@@ -844,7 +844,13 @@ async function disconnectSpotify() {
   try {
     await fetch('/logout', { method: 'POST' })
   } catch(e) {}
-  // reset all client state
+  closeSettings()
+  signedOut()
+}
+
+// Back to the connect screen with nothing of the old session left behind —
+// after Disconnect, or when the server says the session has gone.
+function signedOut() {
   isLoggedIn = false
   currentTrackId = null
   currentTrackData = null
@@ -854,9 +860,6 @@ async function disconnectSpotify() {
   currentLineIndex = -1
   lastKnownData = null
   isPlaying = false
-  // close settings modal
-  closeSettings()
-  // show login welcome screen
   showWelcomeScreen()
 }
 
@@ -941,8 +944,11 @@ async function fetchNowPlaying() {
   try {
     const response = await fetch('/now-playing')
 
-    if (response.redirected && response.url.includes('/login')) {
-      showWelcomeScreen()
+    // Never signed in, or the session lapsed (e.g. Spotify refused the token
+    // refresh). Only redraw on the change — the connect screen is already up
+    // on first load, and restarting its animation every poll would stutter.
+    if (response.status === 401) {
+      if (isLoggedIn) signedOut()
       return
     }
 
@@ -1086,6 +1092,10 @@ async function fetchNowPlaying() {
       const translateRes = await fetch(
         `/translate?song=${encodeURIComponent(data.song)}&artist=${encodeURIComponent(data.artist)}&track_id=${encodeURIComponent(data.track_id)}&target_lang=EN`
       )
+      if (translateRes.status === 401) {
+        signedOut()
+        return
+      }
       if (!translateRes.ok) {
         // server error (e.g. LRCLIB timeout) — retry later rather than give up
         scheduleLyricsRetry(data.track_id)

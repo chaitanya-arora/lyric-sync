@@ -31,6 +31,10 @@ SPOTIFY_AUTH_URL = 'https://accounts.spotify.com/authorize'
 SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token'
 SPOTIFY_API_URL = 'https://api.spotify.com/v1'
 
+# Without a timeout, one slow Spotify response holds a gunicorn worker until
+# gunicorn kills it — and there are only two of them.
+SPOTIFY_TIMEOUT = 10
+
 SCOPE = 'user-read-currently-playing user-read-playback-state user-modify-playback-state user-read-recently-played'
 
 # how many 'recently played' tracks the sidebar shows
@@ -170,7 +174,7 @@ def refresh_access_token():
             'refresh_token': refresh_token,
             'client_id': SPOTIFY_CLIENT_ID,
             'client_secret': SPOTIFY_CLIENT_SECRET,
-        })
+        }, timeout=SPOTIFY_TIMEOUT)
         data = response.json()
         if 'access_token' in data:
             session['access_token'] = data['access_token']
@@ -194,6 +198,7 @@ def spotify_get(url, **kwargs):
         return None
     headers = kwargs.pop('headers', {})
     headers['Authorization'] = f'Bearer {token}'
+    kwargs.setdefault('timeout', SPOTIFY_TIMEOUT)
     r = requests.get(url, headers=headers, **kwargs)
     if r.status_code == 401:
         token = refresh_access_token()
@@ -211,6 +216,7 @@ def spotify_post(url, **kwargs):
         return None
     headers = kwargs.pop('headers', {})
     headers['Authorization'] = f'Bearer {token}'
+    kwargs.setdefault('timeout', SPOTIFY_TIMEOUT)
     r = requests.post(url, headers=headers, **kwargs)
     if r.status_code == 401:
         token = refresh_access_token()
@@ -228,6 +234,7 @@ def spotify_put(url, **kwargs):
         return None
     headers = kwargs.pop('headers', {})
     headers['Authorization'] = f'Bearer {token}'
+    kwargs.setdefault('timeout', SPOTIFY_TIMEOUT)
     r = requests.put(url, headers=headers, **kwargs)
     if r.status_code == 401:
         token = refresh_access_token()
@@ -236,6 +243,14 @@ def spotify_put(url, **kwargs):
         headers['Authorization'] = f'Bearer {token}'
         r = requests.put(url, headers=headers, **kwargs)
     return r
+
+
+@app.errorhandler(requests.RequestException)
+def upstream_unreachable(e):
+    # Spotify timed out or dropped the connection. That says nothing about the
+    # session, so don't answer 401 and sign the user out over it.
+    app.logger.warning('Upstream request failed: %s', e)
+    return jsonify({'error': 'Upstream service unavailable'}), 502
 
 
 @app.route('/')
@@ -281,7 +296,7 @@ def callback():
         'redirect_uri': SPOTIFY_REDIRECT_URI,
         'client_id': SPOTIFY_CLIENT_ID,
         'client_secret': SPOTIFY_CLIENT_SECRET,
-    })
+    }, timeout=SPOTIFY_TIMEOUT)
 
     token_data = token_response.json()
 
@@ -317,19 +332,21 @@ def logout():
 
 @app.route('/now-playing')
 def now_playing():
+    # This is polled with fetch, which can't follow a redirect to Spotify's
+    # login page — say 401 and let the page show the connect screen.
     access_token = get_access_token()
     if not access_token:
-        return redirect('/login')
+        return jsonify({'error': 'Not authenticated'}), 401
 
     response = spotify_get(f"{SPOTIFY_API_URL}/me/player/currently-playing")
-    if response is None:
-        return redirect('/login')
+    if response is None or response.status_code == 401:
+        return jsonify({'error': 'Not authenticated'}), 401
 
     if response.status_code == 204:
         return jsonify({'playing': False, 'message': 'Nothing is currently playing'})
 
     if response.status_code != 200:
-        return f"Spotify API error: {response.status_code} - {response.text}", 400
+        return jsonify({'error': f'Spotify API error: {response.status_code}'}), 502
 
     data = response.json()
 

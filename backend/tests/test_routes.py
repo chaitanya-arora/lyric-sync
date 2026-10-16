@@ -536,3 +536,36 @@ def test_logout_is_post_only(client):
     """A GET logout could be triggered by any page embedding the URL."""
     assert client.get('/logout').status_code == 405
     assert client.post('/logout').status_code == 204
+
+
+# --- reliability ---
+
+def test_now_playing_answers_401_rather_than_redirecting(client):
+    """It's polled with fetch, which can't follow a redirect to Spotify."""
+    resp = client.get('/now-playing')
+    assert resp.status_code == 401
+    assert resp.get_json() == {'error': 'Not authenticated'}
+
+
+def test_now_playing_401_when_the_session_has_lapsed(client, spotify, monkeypatch):
+    """spotify_get hands back Spotify's 401 when the token refresh failed."""
+    monkeypatch.setattr(spotify, 'spotify_get', lambda url, **kw: FakeResponse(401))
+    assert client.get('/now-playing').status_code == 401
+
+
+def test_spotify_timeout_is_a_502_not_a_sign_out(client, spotify, monkeypatch):
+    def timeout(url, **kwargs):
+        raise requests.Timeout()
+    monkeypatch.setattr(spotify, 'spotify_get', timeout)
+    assert client.get('/now-playing').status_code == 502
+
+
+def test_spotify_calls_carry_a_timeout(spotify, monkeypatch):
+    seen = {}
+
+    def fake_get(url, **kwargs):
+        seen.update(kwargs)
+        return FakeResponse(200, {})
+    monkeypatch.setattr(spotify.requests, 'get', fake_get)
+    spotify.spotify_get('https://api.spotify.com/v1/me')
+    assert seen['timeout'] == spotify.SPOTIFY_TIMEOUT

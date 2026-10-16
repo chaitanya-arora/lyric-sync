@@ -14,7 +14,9 @@ import app as app_module  # noqa: E402  (needs the path set above)
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
+    # CI has no .env, and sessions (OAuth state, logout) need a signing key
+    monkeypatch.setattr(app_module.app, 'secret_key', 'test-secret')
     return app_module.app.test_client()
 
 

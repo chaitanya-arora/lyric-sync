@@ -3,6 +3,8 @@
 No network and no credentials: every test swaps the spotify_* helpers for a
 canned response, so what's under test is our own handling of them.
 """
+from urllib.parse import parse_qs, urlparse
+
 import pytest
 import requests
 
@@ -484,3 +486,53 @@ def test_deepl_timeout_is_retryable(translate):
     stub['deepl'] = requests.ConnectionError()
     assert client.get(TRANSLATE_URL).status_code == 502
 
+
+
+def test_translate_requires_authentication(client):
+    """DeepL's quota is shared — anonymous callers mustn't be able to spend it."""
+    assert client.get(TRANSLATE_URL).status_code == 401
+
+
+def test_lyrics_requires_authentication(client):
+    assert client.get('/lyrics?song=a&artist=b').status_code == 401
+
+
+# --- login ---
+
+def login_state(client):
+    location = client.get('/login').headers['Location']
+    return parse_qs(urlparse(location).query)['state'][0]
+
+
+def test_login_sends_a_state_to_spotify(client):
+    assert len(login_state(client)) >= 16
+
+
+def test_callback_rejects_a_missing_state(client):
+    login_state(client)
+    assert client.get('/callback?code=abc').status_code == 400
+
+
+def test_callback_rejects_a_forged_state(client):
+    login_state(client)
+    assert client.get('/callback?code=abc&state=forged').status_code == 400
+
+
+def test_callback_rejects_a_login_this_browser_never_started(client):
+    assert client.get('/callback?code=abc&state=anything').status_code == 400
+
+
+def test_callback_accepts_its_own_state_once(client, monkeypatch):
+    import app as app_module
+    monkeypatch.setattr(app_module.requests, 'post', lambda url, **kw: FakeResponse(
+        200, {'access_token': 'a', 'refresh_token': 'r'}))
+    state = login_state(client)
+    assert client.get(f'/callback?code=abc&state={state}').status_code == 302
+    # replaying the same callback must not log in again
+    assert client.get(f'/callback?code=abc&state={state}').status_code == 400
+
+
+def test_logout_is_post_only(client):
+    """A GET logout could be triggered by any page embedding the URL."""
+    assert client.get('/logout').status_code == 405
+    assert client.post('/logout').status_code == 204

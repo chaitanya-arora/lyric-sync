@@ -1,7 +1,7 @@
 from flask import Flask, redirect, request, session, jsonify, render_template
-from flask_cors import CORS
 from dotenv import load_dotenv
 import os
+import secrets
 import requests
 import urllib.parse
 import re
@@ -10,12 +10,19 @@ import json
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app)
 app.secret_key = os.getenv('FLASK_SECRET_KEY')
 
 SPOTIFY_CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID')
 SPOTIFY_CLIENT_SECRET = os.getenv('SPOTIFY_CLIENT_SECRET')
 SPOTIFY_REDIRECT_URI = os.getenv('SPOTIFY_REDIRECT_URI')
+
+# The session cookie carries the Spotify tokens: keep it away from page
+# scripts and cross-site requests, and off plain HTTP wherever we serve HTTPS.
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=(SPOTIFY_REDIRECT_URI or '').startswith('https://'),
+)
 
 DEEPL_API_KEY = os.getenv('DEEPL_API_KEY')
 DEEPL_API_URL = 'https://api-free.deepl.com/v2/translate'
@@ -238,12 +245,17 @@ def home():
 
 @app.route('/login')
 def login():
+    # ties the callback to a login this browser started — without it, anyone
+    # could send you to /callback with their own code and sign you in as them
+    state = secrets.token_urlsafe(16)
+    session['oauth_state'] = state
     params = {
         'client_id': SPOTIFY_CLIENT_ID,
         'response_type': 'code',
         'redirect_uri': SPOTIFY_REDIRECT_URI,
         'scope': SCOPE,
         'show_dialog': 'true',  # always show account picker — prevents auto-login after disconnect
+        'state': state,
     }
     auth_url = f"{SPOTIFY_AUTH_URL}?{urllib.parse.urlencode(params)}"
     return redirect(auth_url)
@@ -253,6 +265,10 @@ def login():
 def callback():
     code = request.args.get('code')
     error = request.args.get('error')
+
+    expected_state = session.pop('oauth_state', None)
+    if not expected_state or request.args.get('state') != expected_state:
+        return "Login expired or didn't start here — please try again.", 400
 
     if error:
         return f"Spotify login error: {error}", 400
@@ -270,7 +286,8 @@ def callback():
     token_data = token_response.json()
 
     if 'access_token' not in token_data:
-        return f"Failed to get token: {token_data}", 400
+        app.logger.warning('Spotify token exchange failed: %s', token_data.get('error'))
+        return "Couldn't finish connecting to Spotify — please try again.", 400
 
     session['access_token'] = token_data['access_token']
     session['refresh_token'] = token_data['refresh_token']
@@ -292,7 +309,7 @@ def me():
     return jsonify(response.json())
 
 
-@app.route('/logout', methods=['POST', 'GET'])
+@app.route('/logout', methods=['POST'])
 def logout():
     session.clear()
     return ('', 204)  # frontend handles showing the welcome screen
@@ -611,6 +628,9 @@ def playback():
 
 @app.route('/lyrics')
 def lyrics():
+    if not get_access_token():
+        return jsonify({'error': 'Not authenticated'}), 401
+
     song = request.args.get('song')
     artist = request.args.get('artist')
 
@@ -622,6 +642,11 @@ def lyrics():
 
 @app.route('/translate')
 def translate():
+    # DeepL's free quota is shared by everyone using the app — only signed-in
+    # users get to spend it
+    if not get_access_token():
+        return jsonify({'error': 'Not authenticated'}), 401
+
     track_id = request.args.get('track_id')
     song = request.args.get('song')
     artist = request.args.get('artist')

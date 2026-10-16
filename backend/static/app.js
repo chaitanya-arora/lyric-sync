@@ -38,7 +38,6 @@ const songName = document.getElementById('song-name')
 const artistName = document.getElementById('artist-name')
 const langBadge = document.getElementById('lang-badge')
 const stateScreen = document.getElementById('state-screen')
-const stateIcon = document.getElementById('state-icon')
 const stateTitle = document.getElementById('state-title')
 const stateSubtitle = document.getElementById('state-subtitle')
 const lyricsContainer = document.getElementById('lyrics-container')
@@ -117,7 +116,7 @@ function initFloats() {
     const startX = Math.random() * 100   // vw %
     const startY = 100 + Math.random() * 40  // start below viewport
     const size = 18 + Math.random() * 16
-    const opacity = 0.25 + Math.random() * 0.30
+    const opacity = 0.12 + Math.random() * 0.2
     const duration = 8 + Math.random() * 10  // seconds to float up
     const delay = -(Math.random() * duration) // stagger start
 
@@ -148,8 +147,8 @@ function drawOrbs(t) {
     const radius = orb.r * Math.min(canvas.width, canvas.height)
 
     const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius)
-    grad.addColorStop(0,   `hsla(${orb.hue}, 90%, 65%, 0.32)`)
-    grad.addColorStop(0.5, `hsla(${orb.hue}, 80%, 55%, 0.14)`)
+    grad.addColorStop(0,   `hsla(${orb.hue}, 70%, 60%, 0.16)`)
+    grad.addColorStop(0.5, `hsla(${orb.hue}, 60%, 50%, 0.07)`)
     grad.addColorStop(1,   `hsla(${orb.hue}, 70%, 40%, 0)`)
 
     ctx.fillStyle = grad
@@ -200,6 +199,12 @@ window.addEventListener('resize', () => {
 //  WELCOME SCREEN SHOW / HIDE
 // ─────────────────────────────────────────
 
+function setWelcomeText(title, tagline, desc) {
+  document.getElementById('welcome-title').textContent = title
+  document.getElementById('welcome-tagline').textContent = tagline
+  document.getElementById('welcome-desc').textContent = desc
+}
+
 function showWelcomeScreen() {
   topBar.style.display = 'none'
   bottomBar.style.display = 'none'
@@ -212,9 +217,8 @@ function showWelcomeScreen() {
 
   if (isLoggedIn) {
     welcomeLoginBtn.classList.add('hidden')
-    document.getElementById('welcome-tagline').textContent = "You're connected!"
-    document.getElementById('welcome-desc').textContent =
-      'Play a song in Spotify to see real-time translated lyrics.'
+    setWelcomeText("You're connected!", 'Play a song in Spotify to get started',
+      'Your translated lyrics will appear here, line by line, as you listen.')
     // orbs run on connected screen too — just no floating flags/notes
     stopWelcomeAnimation()
     resizeCanvas()
@@ -222,9 +226,8 @@ function showWelcomeScreen() {
     requestAnimationFrame(animateWelcome)
   } else {
     welcomeLoginBtn.classList.remove('hidden')
-    document.getElementById('welcome-tagline').textContent = 'Music, understood.'
-    document.getElementById('welcome-desc').textContent =
-      'Connect Spotify and LyricSync shows you real-time translated lyrics — line by line, in sync, as you listen. No pausing. No Googling. Just music and meaning, together.'
+    setWelcomeText('Welcome to LyricSync', 'Music, understood.',
+      'Connect Spotify and LyricSync shows you real-time translated lyrics — line by line, in sync, as you listen. No pausing. No Googling. Just music and meaning, together.')
     startWelcomeAnimation()  // flags + notes + orbs
   }
 }
@@ -243,16 +246,26 @@ function hideWelcomeScreen(callback) {
 //  CONTENT PANEL HELPERS
 // ─────────────────────────────────────────
 
+// Loading, "no lyrics" and "already in English" share one card. `notes` puts
+// the Figma's scattered music notes behind it; `action` adds a button below.
 function showContent(type, options = {}) {
   if (type === 'lyrics') {
     stateScreen.style.display = 'none'
-    lyricsContainer.style.display = 'flex'
-  } else {
-    lyricsContainer.style.display = 'none'
-    stateScreen.style.display = 'flex'
-    stateIcon.textContent = options.icon || '🎵'
-    stateTitle.textContent = options.title || ''
-    stateSubtitle.textContent = options.subtitle || ''
+    lyricsContainer.style.display = 'block'
+    return
+  }
+  lyricsContainer.style.display = 'none'
+  stateScreen.style.display = 'flex'
+  stateScreen.classList.toggle('notes', Boolean(options.notes))
+  stateTitle.textContent = options.title || ''
+  stateSubtitle.textContent = options.subtitle || ''
+
+  const button = document.getElementById('state-action')
+  button.hidden = !options.action
+  if (options.action) {
+    button.textContent = options.action.label
+    button.disabled = false
+    button.onclick = options.action.onClick
   }
 }
 
@@ -290,6 +303,19 @@ function hasTimings(lyrics) {
 function syncActiveLine(ms) {
   if (!currentLyricsSynced || currentLyrics.length === 0) return
   updateActiveLine(getCurrentLineIndex(currentLyrics, ms + SYNC_OFFSET_BASE + dynamicOffset))
+}
+
+// The Figma writes languages as three letters: "FRE → ENG".
+const LANG_LABELS = {
+  AR: 'ARA', BN: 'BEN', DE: 'GER', EL: 'GRE', EN: 'ENG', ES: 'ESP', FA: 'PER',
+  FR: 'FRE', HE: 'HEB', HI: 'HIN', ID: 'IND', IT: 'ITA', JA: 'JPN', KO: 'KOR',
+  NL: 'DUT', PA: 'PUN', PL: 'POL', PT: 'POR', RU: 'RUS', SV: 'SWE', TA: 'TAM',
+  TE: 'TEL', TH: 'THA', TR: 'TUR', UK: 'UKR', UR: 'URD', VI: 'VIE', ZH: 'CHI'
+}
+
+function langLabel(code) {
+  const base = (code || '').split('-')[0]
+  return LANG_LABELS[base] || base
 }
 
 function normaliseLyric(text) {
@@ -359,7 +385,23 @@ function updateActiveLine(index) {
   })
 
   const activeLine = document.querySelectorAll('.lyric-line')[index]
-  if (activeLine) activeLine.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  if (activeLine) centreLine(activeLine)
+}
+
+// scrollIntoView would also scroll #main — overflow:hidden, but still
+// scrollable from script — and shove the whole card up. Scroll the lyrics
+// well alone.
+function centreLine(line) {
+  const top = line.offsetTop - (lyricsContainer.clientHeight - line.offsetHeight) / 2
+  lyricsContainer.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' })
+}
+
+// A line can't be scrolled to while the lyrics are hidden (behind the welcome
+// screen, or on another page). Forget which line is showing so the next sync
+// scrolls to it, now that it can.
+function recentreLyrics() {
+  currentLineIndex = -1
+  syncActiveLine(isPlaying ? progressMs + (Date.now() - lastServerSync) : progressMs)
 }
 
 function paintProgress(ms, dur = durationMs) {
@@ -407,6 +449,7 @@ function applyTranslationEnabled(enabled) {
   translationEnabled = enabled
   const toggle = document.getElementById('toggle-switch')
   toggle.classList.toggle('on', translationEnabled)
+  toggle.setAttribute('aria-checked', String(translationEnabled))
   document.querySelectorAll('.lyric-translation').forEach(el => {
     el.style.display = translationEnabled ? '' : 'none'
   })
@@ -494,6 +537,356 @@ async function sendPlayback(action) {
 async function togglePlayPause() {
   const action = isPlaying ? 'pause' : 'play'
   await sendPlayback(action)
+}
+
+// ─────────────────────────────────────────
+//  SHUFFLE, REPEAT, VOLUME, DEVICES
+// ─────────────────────────────────────────
+
+let shuffleOn = false
+let repeatState = 'off'        // 'off' | 'context' | 'track'
+let playerDevice = null        // { id, name, volume_percent, supports_volume }
+let volumeHeldUntil = 0        // ignore polled volume while the slider settles
+let playerHeldUntil = 0        // same for shuffle and repeat after a click
+
+const REPEAT_NEXT = { off: 'context', context: 'track', track: 'off' }
+const REPEAT_TITLES = { off: 'Repeat', context: 'Repeat: on', track: 'Repeat: this song' }
+
+function paintPlayerState() {
+  document.getElementById('btn-shuffle').setAttribute('aria-pressed', String(shuffleOn))
+  const repeatBtn = document.getElementById('btn-repeat')
+  repeatBtn.setAttribute('aria-pressed', String(repeatState !== 'off'))
+  repeatBtn.title = REPEAT_TITLES[repeatState] || 'Repeat'
+  document.getElementById('repeat-one').hidden = repeatState !== 'track'
+
+  const volumeBtn = document.getElementById('btn-volume')
+  const canSetVolume = Boolean(playerDevice && playerDevice.supports_volume !== false)
+  volumeBtn.disabled = !canSetVolume
+  volumeBtn.title = canSetVolume ? 'Volume' : "This device's volume can't be changed from here"
+}
+
+// The poll is the source of truth, except just after the user changed
+// something — Spotify takes a moment to report it back.
+function updatePlayerState(data) {
+  if (Date.now() >= playerHeldUntil) {
+    if (typeof data.shuffle === 'boolean') shuffleOn = data.shuffle
+    if (data.repeat) repeatState = data.repeat
+  }
+  if (data.device) {
+    playerDevice = data.device
+    const volume = data.device.volume_percent
+    if (typeof volume === 'number' && Date.now() >= volumeHeldUntil) {
+      document.getElementById('volume-slider').value = volume
+    }
+  }
+  paintPlayerState()
+}
+
+async function changePlayerSetting(body, undo) {
+  playerHeldUntil = Date.now() + 3000
+  paintPlayerState()
+  try {
+    const result = await postPlayback(body)
+    if (!result.ok) {
+      undo()
+      paintPlayerState()
+      reportPlaybackProblem(result)
+    }
+  } catch (e) {
+    undo()
+    paintPlayerState()
+    showToast(UNREACHABLE)
+  }
+}
+
+function toggleShuffle() {
+  const was = shuffleOn
+  shuffleOn = !was
+  changePlayerSetting({ action: 'shuffle', state: shuffleOn }, () => { shuffleOn = was })
+}
+
+function cycleRepeat() {
+  const was = repeatState
+  repeatState = REPEAT_NEXT[was] || 'off'
+  changePlayerSetting({ action: 'repeat', state: repeatState }, () => { repeatState = was })
+}
+
+// ── popovers (devices, volume) ──
+function closePopovers(except) {
+  for (const [buttonId, popoverId] of [['btn-devices', 'device-menu'], ['btn-volume', 'volume-popover']]) {
+    if (popoverId === except) continue
+    document.getElementById(popoverId).hidden = true
+    document.getElementById(buttonId).setAttribute('aria-expanded', 'false')
+  }
+}
+
+function togglePopover(buttonId, popoverId) {
+  const popover = document.getElementById(popoverId)
+  const open = popover.hidden
+  closePopovers(popoverId)
+  popover.hidden = !open
+  document.getElementById(buttonId).setAttribute('aria-expanded', String(open))
+  return open
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.popover-anchor')) closePopovers()
+})
+
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return
+  closePopovers()
+  toggleQueue(false)
+})
+
+function toggleVolume() {
+  togglePopover('btn-volume', 'volume-popover')
+}
+
+// Send the volume once the slider rests, not on every pixel of the drag.
+let volumeTimer = null
+document.getElementById('volume-slider').addEventListener('input', e => {
+  const volume = Number(e.target.value)
+  volumeHeldUntil = Date.now() + 4000
+  clearTimeout(volumeTimer)
+  volumeTimer = setTimeout(async () => {
+    const result = await postPlayback({ action: 'volume', volume_percent: volume }).catch(() => null)
+    if (result && !result.ok) reportPlaybackProblem(result)
+  }, 250)
+})
+
+const DEVICE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm-5 18a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-12a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/></svg>'
+
+function deviceMessage(menu, text) {
+  menu.innerHTML = ''
+  const message = document.createElement('div')
+  message.className = 'device-empty'
+  message.textContent = text
+  menu.appendChild(message)
+}
+
+async function toggleDevices() {
+  if (!togglePopover('btn-devices', 'device-menu')) return
+  const menu = document.getElementById('device-menu')
+  deviceMessage(menu, 'Looking for devices…')
+  try {
+    const res = await fetch('/devices')
+    const devices = res.ok ? (await res.json()).devices : []
+    if (!devices.length) {
+      deviceMessage(menu, 'No devices found. Open Spotify on your phone, computer or speaker and it will show up here.')
+      return
+    }
+    menu.innerHTML = '<div class="device-heading">Connect to a device</div>'
+    devices.forEach(device => {
+      const option = document.createElement('button')
+      option.type = 'button'
+      option.className = 'device-option'
+      option.innerHTML = DEVICE_ICON
+      // device names are user-chosen — textContent, never innerHTML
+      option.append(document.createTextNode(device.name || 'Unnamed device'))
+      if (device.is_active) option.classList.add('active')
+      if (device.is_restricted) {
+        option.disabled = true
+        option.title = "Spotify doesn't allow controlling this device from other apps"
+      }
+      option.addEventListener('click', () => transferTo(device))
+      menu.appendChild(option)
+    })
+  } catch (e) {
+    deviceMessage(menu, UNREACHABLE)
+  }
+}
+
+async function transferTo(device) {
+  closePopovers()
+  if (device.is_active) return
+  try {
+    const result = await postPlayback({ action: 'transfer', device_id: device.id, play: isPlaying })
+    if (!result.ok) {
+      reportPlaybackProblem(result)
+      return
+    }
+    showToast(`Playing on ${device.name}`, 3000)
+    setTimeout(fetchNowPlaying, 800)
+  } catch (e) {
+    showToast(UNREACHABLE)
+  }
+}
+
+function toggleFullscreen() {
+  if (document.fullscreenElement) {
+    document.exitFullscreen()
+  } else {
+    document.documentElement.requestFullscreen().catch(() => {})
+  }
+}
+
+// ─────────────────────────────────────────
+//  YOUR LIBRARY
+// ─────────────────────────────────────────
+
+let libraryItems = []
+let libraryFilter = null      // 'playlist' | 'album' | 'show' | null for all
+const libraryList = document.getElementById('library-list')
+
+function libraryMessage(text, action) {
+  libraryList.innerHTML = ''
+  const message = document.createElement('div')
+  message.className = 'library-message'
+  message.textContent = text
+  if (action) {
+    message.appendChild(document.createElement('br'))
+    message.appendChild(action)
+  }
+  libraryList.appendChild(message)
+}
+
+function renderLibrary() {
+  const items = libraryFilter
+    ? libraryItems.filter(item => item.kind === libraryFilter)
+    : libraryItems
+  if (!items.length) {
+    libraryMessage(libraryItems.length
+      ? 'Nothing saved here yet.'
+      : 'Your playlists, albums and podcasts from Spotify will show up here.')
+    return
+  }
+  libraryList.innerHTML = ''
+  items.forEach(item => {
+    // names come from Spotify and other users — textContent only
+    const row = document.createElement('button')
+    row.type = 'button'
+    row.className = `library-item ${item.kind}`
+    row.title = `Play ${item.name}`
+
+    const art = document.createElement('img')
+    art.className = 'library-art'
+    art.alt = ''
+    art.loading = 'lazy'
+    if (item.image) art.src = item.image
+
+    const info = document.createElement('div')
+    info.className = 'library-info'
+    const name = document.createElement('div')
+    name.className = 'library-name'
+    name.textContent = item.name
+    const sub = document.createElement('div')
+    sub.className = 'library-sub'
+    sub.textContent = item.subtitle
+    info.append(name, sub)
+
+    row.append(art, info)
+    row.addEventListener('click', () => playContext(item))
+    libraryList.appendChild(row)
+  })
+}
+
+async function loadLibrary() {
+  libraryMessage('Loading your library…')
+  try {
+    const res = await fetch('/library')
+    if (res.status === 403) {
+      const reason = (await res.json().catch(() => ({}))).reason
+      if (reason === 'reconnect') {
+        // sessions from before Your Library existed lack its permissions
+        const button = document.createElement('a')
+        button.href = '/login'
+        button.textContent = 'Reconnect Spotify'
+        libraryMessage('LyricSync needs a new permission to show your library.', button)
+        return
+      }
+      libraryMessage("Spotify isn't sharing your library right now.")
+      return
+    }
+    if (!res.ok) throw new Error(`library: ${res.status}`)
+    libraryItems = (await res.json()).items || []
+    renderLibrary()
+  } catch (e) {
+    console.warn('Library error:', e)
+    libraryMessage("Couldn't load your library — try again in a moment.")
+  }
+}
+
+document.querySelectorAll('#library-chips .chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    // clicking the active filter again shows everything
+    libraryFilter = libraryFilter === chip.dataset.kind ? null : chip.dataset.kind
+    document.querySelectorAll('#library-chips .chip').forEach(other => {
+      other.setAttribute('aria-pressed', String(other.dataset.kind === libraryFilter))
+    })
+    renderLibrary()
+  })
+})
+
+async function playContext(item) {
+  try {
+    const result = await postPlayback({ action: 'play_context', context_uri: item.uri })
+    if (!result.ok) {
+      reportPlaybackProblem(result)
+      return
+    }
+    location.hash = '#/now-playing'
+    setTimeout(fetchNowPlaying, 600)
+  } catch (e) {
+    showToast(UNREACHABLE)
+  }
+}
+
+// ─────────────────────────────────────────
+//  PAGES
+// ─────────────────────────────────────────
+
+// Hash routes, so the back button and a refresh keep you on the same page.
+const PLACEHOLDER_TITLES = { home: 'Home', search: 'Search', favourites: 'Favourites' }
+const VIEWS = ['now-playing', 'recent', ...Object.keys(PLACEHOLDER_TITLES)]
+
+function currentView() {
+  const name = location.hash.replace(/^#\/?/, '')
+  return VIEWS.includes(name) ? name : 'now-playing'
+}
+
+function route() {
+  const view = currentView()
+  document.getElementById('view-now-playing').hidden = view !== 'now-playing'
+  document.getElementById('view-recent').hidden = view !== 'recent'
+
+  const placeholder = PLACEHOLDER_TITLES[view]
+  document.getElementById('view-placeholder').hidden = !placeholder
+  if (placeholder) document.getElementById('placeholder-title').textContent = placeholder
+
+  document.querySelectorAll('.nav-link').forEach(link => {
+    const active = link.dataset.view === view
+    link.classList.toggle('active', active)
+    if (active) link.setAttribute('aria-current', 'page')
+    else link.removeAttribute('aria-current')
+  })
+  document.getElementById('btn-lyrics').classList.toggle('on', view === 'now-playing')
+
+  if (view === 'recent') loadRecent()
+  if (view === 'now-playing') recentreLyrics()
+}
+
+window.addEventListener('hashchange', route)
+
+// ─────────────────────────────────────────
+//  REQUEST A SONG
+// ─────────────────────────────────────────
+
+async function requestSong(track) {
+  const button = document.getElementById('state-action')
+  button.disabled = true
+  try {
+    const res = await fetch('/song-requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_id: track.track_id, song: track.song, artist: track.artist })
+    })
+    if (!res.ok) throw new Error(`song-requests: ${res.status}`)
+    button.textContent = "Requested — thanks!"
+  } catch (e) {
+    button.disabled = false
+    showToast("Couldn't send the request — try again in a moment.")
+  }
 }
 
 // ─────────────────────────────────────────
@@ -660,15 +1053,12 @@ function refreshContextSoon() {
 
 function renderContext(prev, next) {
   const list = document.getElementById('queue-list')
-  const dot = document.getElementById('queue-dot')
 
   if (!prev.length && !next.length) {
     list.innerHTML = '<div class="queue-empty">Nothing queued — add songs in Spotify</div>'
-    dot.classList.remove('visible')
     return
   }
 
-  dot.classList.add('visible')
   list.innerHTML = ''
 
   if (prev.length) {
@@ -688,31 +1078,51 @@ function renderContext(prev, next) {
   }
 }
 
+// Built with textContent rather than an HTML string: song and artist names
+// come from Spotify, and a track called <img onerror=...> is legal there.
 function buildQueueItem(track, direction, num) {
   const div = document.createElement('div')
-  div.className = `queue-item ${direction === 'prev' ? 'queue-item-prev' : ''}`
-  div.innerHTML = `
-    <div class="queue-num">${direction === 'next' ? num : '↩'}</div>
-    <div class="queue-thumb">
-      ${track.album_art
-        ? `<img src="${track.album_art}" alt="">`
-        : `<div style="width:100%;height:100%;background:#222;border-radius:4px;"></div>`
-      }
-    </div>
-    <div class="queue-info">
-      <div class="queue-song">${track.song}</div>
-      <div class="queue-artist">${track.artist}</div>
-    </div>
-    <div class="queue-duration">${formatTime(track.duration_ms)}</div>
-  `
+  div.className = `queue-item${direction === 'prev' ? ' queue-item-prev' : ''}`
+
+  const number = document.createElement('div')
+  number.className = 'queue-num'
+  number.textContent = direction === 'next' ? num : '↩'
+
+  const thumb = document.createElement('img')
+  thumb.className = 'queue-thumb'
+  thumb.alt = ''
+  if (track.album_art) thumb.src = track.album_art
+
+  const info = document.createElement('div')
+  info.className = 'queue-info'
+  const song = document.createElement('div')
+  song.className = 'queue-song'
+  song.textContent = track.song
+  const artist = document.createElement('div')
+  artist.className = 'queue-artist'
+  artist.textContent = track.artist
+  info.append(song, artist)
+
+  const duration = document.createElement('div')
+  duration.className = 'queue-duration'
+  duration.textContent = formatTime(track.duration_ms)
+
+  div.append(number, thumb, info, duration)
   return div
+}
+
+function toggleQueue(open) {
+  const panel = document.getElementById('queue-panel')
+  const show = open ?? panel.hidden
+  panel.hidden = !show
+  document.getElementById('btn-queue').setAttribute('aria-pressed', String(show))
+  if (show) fetchContext()
 }
 
 // ─────────────────────────────────────────
 //  RECENTLY PLAYED
 // ─────────────────────────────────────────
 
-const recentModal = document.getElementById('recent-modal')
 const recentList = document.getElementById('recent-list')
 
 const PLAY_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"/></svg>'
@@ -771,7 +1181,7 @@ function renderRecent(tracks) {
 }
 
 async function playTrack(track) {
-  closeRecent()
+  location.hash = '#/now-playing'
   try {
     const result = await postPlayback({ action: 'play_track', track_id: track.track_id })
     if (!result.ok) {
@@ -802,8 +1212,7 @@ function recordListen(track, sourceLang) {
   }).catch(e => console.warn('Recording history failed:', e))
 }
 
-async function openRecent() {
-  recentModal.style.display = 'flex'
+async function loadRecent() {
   recentMessage('Loading…')
   try {
     const res = await fetch('/history')
@@ -819,40 +1228,6 @@ async function openRecent() {
     recentMessage("Couldn't load your history — try again in a moment.")
   }
 }
-
-function closeRecent() {
-  recentModal.style.display = 'none'
-}
-
-document.getElementById('recent-tab').addEventListener('click', openRecent)
-
-recentModal.addEventListener('click', function (e) {
-  if (e.target === this) closeRecent()
-})
-
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && recentModal.style.display !== 'none') closeRecent()
-})
-
-// ─────────────────────────────────────────
-//  COMING SOON MODAL
-// ─────────────────────────────────────────
-
-function showModal() {
-  document.getElementById('coming-soon-modal').style.display = 'flex'
-}
-
-function closeModal() {
-  document.getElementById('coming-soon-modal').style.display = 'none'
-}
-
-document.querySelectorAll('.coming-soon').forEach(link => {
-  link.addEventListener('click', showModal)
-})
-
-document.getElementById('coming-soon-modal').addEventListener('click', function(e) {
-  if (e.target === this) closeModal()
-})
 
 // ── settings modal ──
 document.getElementById('sidebar-settings-btn').addEventListener('click', openSettings)
@@ -891,6 +1266,8 @@ async function disconnectSpotify() {
 function signedOut() {
   isLoggedIn = false
   accessProblem = null
+  libraryItems = []
+  libraryList.innerHTML = ''
   currentTrackId = null
   currentTrackData = null
   localRecent = []
@@ -969,8 +1346,7 @@ function showAccessProblem(reason) {
   signedOut()
   accessProblem = reason
   const problem = ACCESS_PROBLEMS[reason]
-  document.getElementById('welcome-tagline').textContent = problem.title
-  document.getElementById('welcome-desc').textContent = problem.desc
+  setWelcomeText(problem.title, '', problem.desc)
   welcomeLoginBtn.classList.toggle('hidden', !problem.canReconnect)
 }
 
@@ -998,16 +1374,15 @@ function scheduleLyricsRetry(trackId) {
     retryAt = Infinity   // until the track changes
     currentContentState = 'no-lyrics'
     showContent('message', {
-      icon: '🎵',
-      title: "Couldn't load lyrics",
-      subtitle: 'The lyrics service isn\'t responding. Try this song again later.'
+      title: "We couldn't load the lyrics for this song.",
+      subtitle: "The lyrics service isn't responding — try this song again later.",
+      notes: true
     })
     return
   }
 
   retryAt = Date.now() + Math.min(RETRY_BASE_MS * 2 ** (failedAttempts - 1), RETRY_MAX_MS)
   showContent('message', {
-    icon: '⏳',
     title: 'Fetching lyrics...',
     subtitle: 'Taking a little longer than usual, hang tight.'
   })
@@ -1048,6 +1423,7 @@ async function fetchNowPlaying() {
       accessProblem = null
       isLoggedIn = true
       loadPrefs()
+      loadLibrary()
       showBars()
       fetchContext()
     }
@@ -1065,6 +1441,7 @@ async function fetchNowPlaying() {
         lastKnownData = data
         updateTopBar(data)
         updateBottomBar(data)
+        updatePlayerState(data)
         if (Date.now() >= seekSettleUntil) {
           updateProgressBar(data.progress_ms, data.duration_ms)
         }
@@ -1117,6 +1494,7 @@ async function fetchNowPlaying() {
     updateProgressBar(progressMs, durationMs)
     updateTopBar(data)
     updateBottomBar(data)
+    updatePlayerState(data)
 
 
 
@@ -1127,10 +1505,10 @@ async function fetchNowPlaying() {
         bottomBar.style.display = 'flex'
         // restore whichever content panel was showing before pause
         if (currentContentState === 'lyrics') {
-          lyricsContainer.style.display = 'flex'
+          lyricsContainer.style.display = 'block'
           stateScreen.style.display = 'none'
           // re-sync to current position
-          syncActiveLine(progressMs)
+          recentreLyrics()
         } else if (currentContentState) {
           // loading / no-lyrics / english — stateScreen was showing
           stateScreen.style.display = 'flex'
@@ -1171,7 +1549,6 @@ async function fetchNowPlaying() {
     refreshContextSoon()        // don't make the sidebar wait for the 10s poll
 
     showContent('message', {
-      icon: '⏳',
       title: 'Loading lyrics...',
       subtitle: `Fetching translation for ${data.song}`
     })
@@ -1202,9 +1579,9 @@ async function fetchNowPlaying() {
     if (!translateData.translated) {
       currentContentState = 'no-lyrics'
       showContent('message', {
-        icon: '🎵',
-        title: "Couldn't find lyrics yet",
-        subtitle: "We're working on it! Try another song."
+        title: "We couldn't find the lyric translations for this song yet. Check back soon — we're working on it!",
+        notes: true,
+        action: { label: 'Request this song!', onClick: () => requestSong(data) }
       })
       return
     }
@@ -1221,7 +1598,6 @@ async function fetchNowPlaying() {
       currentLyrics = []
       currentContentState = 'english'
       showContent('message', {
-        icon: '💬',
         title: 'Already in English',
         subtitle: 'No translation needed for this track.'
       })
@@ -1230,7 +1606,8 @@ async function fetchNowPlaying() {
 
     const lang = dominantLanguage(currentLyrics)
     if (lang) {
-      langBadge.textContent = `${lang} → ENG`
+      langBadge.textContent = `${langLabel(lang)} → ENG`
+      langBadge.className = `lang-${lang}`
       langBadge.style.display = 'block'
       if (currentTrackId) translation_cache_js[currentTrackId] = `${lang} → EN`
     }
@@ -1240,7 +1617,7 @@ async function fetchNowPlaying() {
     currentContentState = 'lyrics'
     showContent('lyrics')
 
-    syncActiveLine(progressMs)
+    recentreLyrics()
 
   } catch (err) {
     console.error('Fetch error:', err)
@@ -1278,6 +1655,8 @@ function tickProgress() {
 // ─────────────────────────────────────────
 //  KICK OFF
 // ─────────────────────────────────────────
+
+route()
 
 // Show welcome (login mode) immediately — fetchNowPlaying will replace it
 showWelcomeScreen()

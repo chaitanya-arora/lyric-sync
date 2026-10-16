@@ -632,3 +632,173 @@ def test_old_text_dated_misses_are_cleared(database):
     db.init_db()
     with db.connect() as conn:
         assert conn.execute('SELECT COUNT(*) FROM lyrics_misses').fetchone()[0] == 0
+
+
+# --- shuffle, repeat, volume, devices ---
+
+@pytest.mark.parametrize('body, url, params', [
+    ({'action': 'shuffle', 'state': True}, '/me/player/shuffle', {'state': 'true'}),
+    ({'action': 'shuffle', 'state': False}, '/me/player/shuffle', {'state': 'false'}),
+    ({'action': 'repeat', 'state': 'track'}, '/me/player/repeat', {'state': 'track'}),
+    ({'action': 'volume', 'volume_percent': 0}, '/me/player/volume', {'volume_percent': 0}),
+    ({'action': 'volume', 'volume_percent': 100}, '/me/player/volume', {'volume_percent': 100}),
+])
+def test_player_settings_reach_spotify(client, spotify, monkeypatch, body, url, params):
+    calls = []
+
+    def fake_put(u, **kwargs):
+        calls.append((u, kwargs.get('params')))
+        return FakeResponse(204)
+    monkeypatch.setattr(spotify, 'spotify_put', fake_put)
+    assert client.post('/playback', json=body).status_code == 200
+    assert calls == [(f'https://api.spotify.com/v1{url}', params)]
+
+
+@pytest.mark.parametrize('body', [
+    {'action': 'shuffle', 'state': 'yes'},
+    {'action': 'shuffle'},
+    {'action': 'repeat', 'state': 'forever'},
+    {'action': 'volume', 'volume_percent': 101},
+    {'action': 'volume', 'volume_percent': -1},
+    {'action': 'volume', 'volume_percent': True},
+    {'action': 'volume', 'volume_percent': '50'},
+    {'action': 'transfer', 'device_id': '../me'},
+    {'action': 'transfer'},
+])
+def test_player_settings_reject_bad_values(playback, body):
+    client, calls = playback
+    assert client.post('/playback', json=body).status_code == 400
+    assert calls == []
+
+
+def test_playback_rejects_a_body_that_isnt_an_object(playback):
+    client, _ = playback
+    assert client.post('/playback', json=['play']).status_code == 400
+    assert client.post('/playback', data='play').status_code == 400
+
+
+def test_transfer_moves_playback_and_keeps_it_going(client, spotify, monkeypatch):
+    bodies = []
+    monkeypatch.setattr(spotify, 'spotify_put',
+                        lambda u, **kw: bodies.append(kw.get('json')) or FakeResponse(204))
+    client.post('/playback', json={'action': 'transfer', 'device_id': 'abc-123', 'play': True})
+    assert bodies == [{'device_ids': ['abc-123'], 'play': True}]
+
+
+def test_devices_lists_what_the_picker_needs(client, spotify, monkeypatch):
+    monkeypatch.setattr(spotify, 'spotify_get', lambda url, **kw: FakeResponse(200, {'devices': [
+        {'id': 'A', 'name': 'Phone', 'type': 'Smartphone', 'is_active': True,
+         'is_restricted': False, 'volume_percent': 40},
+        {'id': None, 'name': 'Ghost'},
+    ]}))
+    assert client.get('/devices').get_json() == {'devices': [
+        {'id': 'A', 'name': 'Phone', 'type': 'Smartphone', 'is_active': True,
+         'is_restricted': False}]}
+
+
+def test_devices_requires_authentication(client):
+    assert client.get('/devices').status_code == 401
+
+
+def test_now_playing_reports_shuffle_repeat_and_device(client, spotify, monkeypatch):
+    player = {'currently_playing_type': 'track', 'is_playing': True, 'progress_ms': 1000,
+              'item': make_track('T1', 'Song'), 'shuffle_state': True,
+              'repeat_state': 'context',
+              'device': {'id': 'A', 'name': 'Phone', 'volume_percent': 40,
+                         'supports_volume': False}}
+    player['item']['album']['name'] = 'An Album'
+    monkeypatch.setattr(spotify, 'spotify_get', lambda url, **kw: FakeResponse(200, player))
+    data = client.get('/now-playing').get_json()
+    assert data['shuffle'] is True
+    assert data['repeat'] == 'context'
+    assert data['device'] == {'id': 'A', 'name': 'Phone', 'volume_percent': 40,
+                              'supports_volume': False}
+
+
+# --- Your Library ---
+
+LIBRARY_FEEDS = {
+    'playlists': {'items': [
+        {'name': 'Road Trip', 'uri': 'spotify:playlist:P1',
+         'owner': {'display_name': 'Cherry'},
+         'images': [{'url': 'https://i.scdn.co/big'}, {'url': 'https://i.scdn.co/mid'},
+                    {'url': 'https://i.scdn.co/small'}]},
+        None,   # Spotify really does return nulls here for some deleted playlists
+    ]},
+    'albums': {'items': [{'album': {'name': 'An Album', 'uri': 'spotify:album:A1',
+                                    'artists': [{'name': 'X'}, {'name': 'Y'}],
+                                    'images': [{'url': 'https://i.scdn.co/only'}]}}]},
+    'shows': {'items': [{'show': {'name': 'A Podcast', 'uri': 'spotify:show:S1',
+                                  'publisher': 'Someone', 'images': []}}]},
+}
+
+
+@pytest.fixture
+def library_client(client, spotify, monkeypatch):
+    def fake_get(url, **kwargs):
+        kind = url.split('/me/')[1].split('?')[0]
+        return FakeResponse(200, LIBRARY_FEEDS[kind])
+    monkeypatch.setattr(spotify, 'spotify_get', fake_get)
+    return client
+
+
+def test_library_lists_playlists_albums_and_podcasts(library_client):
+    assert library_client.get('/library').get_json()['items'] == [
+        {'kind': 'playlist', 'uri': 'spotify:playlist:P1', 'name': 'Road Trip',
+         'subtitle': 'Playlist • Cherry', 'image': 'https://i.scdn.co/mid'},
+        {'kind': 'album', 'uri': 'spotify:album:A1', 'name': 'An Album',
+         'subtitle': 'Album • X, Y', 'image': 'https://i.scdn.co/only'},
+        {'kind': 'show', 'uri': 'spotify:show:S1', 'name': 'A Podcast',
+         'subtitle': 'Podcast • Someone', 'image': None},
+    ]
+
+
+def test_library_asks_old_sessions_to_reconnect(client, spotify, monkeypatch):
+    """Sessions from before Your Library don't have its permissions."""
+    body = {'error': {'status': 403, 'message': 'Insufficient client scope'}}
+    monkeypatch.setattr(spotify, 'spotify_get', lambda url, **kw: FakeResponse(403, body))
+    resp = client.get('/library')
+    assert resp.status_code == 403
+    assert resp.get_json()['reason'] == 'reconnect'
+
+
+def test_library_shows_what_it_can_when_one_feed_fails(client, spotify, monkeypatch):
+    def fake_get(url, **kwargs):
+        if 'albums' in url:
+            return FakeResponse(500)
+        return FakeResponse(200, LIBRARY_FEEDS[url.split('/me/')[1].split('?')[0]])
+    monkeypatch.setattr(spotify, 'spotify_get', fake_get)
+    kinds = [item['kind'] for item in client.get('/library').get_json()['items']]
+    assert kinds == ['playlist', 'show']
+
+
+def test_library_requires_authentication(client):
+    assert client.get('/library').status_code == 401
+
+
+def test_login_asks_for_the_library_and_email_permissions(client):
+    scope = parse_qs(urlparse(client.get('/login').headers['Location']).query)['scope'][0]
+    for permission in ('user-library-read', 'playlist-read-private', 'user-read-email'):
+        assert permission in scope.split()
+
+
+def test_play_context_starts_a_playlist(client, spotify, monkeypatch):
+    bodies = []
+    monkeypatch.setattr(spotify, 'spotify_put',
+                        lambda u, **kw: bodies.append(kw.get('json')) or FakeResponse(204))
+    client.post('/playback', json={'action': 'play_context',
+                                   'context_uri': 'spotify:playlist:P1'})
+    assert bodies == [{'context_uri': 'spotify:playlist:P1'}]
+
+
+@pytest.mark.parametrize('uri', [
+    'spotify:artist:A1',             # not something the card offers
+    'spotify:playlist:../../me',
+    'https://open.spotify.com/playlist/P1',
+    None,
+])
+def test_play_context_rejects_other_uris(playback, uri):
+    client, calls = playback
+    resp = client.post('/playback', json={'action': 'play_context', 'context_uri': uri})
+    assert resp.status_code == 400
+    assert calls == []

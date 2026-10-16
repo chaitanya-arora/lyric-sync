@@ -39,7 +39,15 @@ SPOTIFY_API_URL = 'https://api.spotify.com/v1'
 # gunicorn kills it — and there are only two of them.
 SPOTIFY_TIMEOUT = 10
 
-SCOPE = 'user-read-currently-playing user-read-playback-state user-modify-playback-state user-read-recently-played'
+SCOPE = ' '.join([
+    'user-read-currently-playing',
+    'user-read-playback-state',
+    'user-modify-playback-state',
+    'user-read-recently-played',
+    'user-library-read',        # saved albums and podcasts, for Your Library
+    'playlist-read-private',    # private playlists, for Your Library
+    'user-read-email',          # the address shown in Settings
+])
 
 # how many 'recently played' tracks the sidebar shows
 RECENT_LIMIT = 2
@@ -328,6 +336,9 @@ def spotify_access_problem(response):
         return 'owner_premium_required'
     if 'not be registered' in message:
         return 'user_not_registered'
+    # a session from before a permission was added — signing in again fixes it
+    if 'scope' in message:
+        return 'reconnect'
     return 'forbidden'
 
 
@@ -339,7 +350,9 @@ def now_playing():
     if not access_token:
         return jsonify({'error': 'Not authenticated'}), 401
 
-    response = spotify_get(f"{SPOTIFY_API_URL}/me/player/currently-playing")
+    # /me/player rather than /currently-playing: same track and position, plus
+    # the shuffle, repeat and device state the player bar shows
+    response = spotify_get(f"{SPOTIFY_API_URL}/me/player")
     if response is None or response.status_code == 401:
         return jsonify({'error': 'Not authenticated'}), 401
 
@@ -363,6 +376,7 @@ def now_playing():
         return jsonify({'playing': False, 'message': 'No track is playing'})
 
     track = data['item']
+    device = data.get('device') or {}
 
     return jsonify({
         'playing': True,
@@ -373,7 +387,15 @@ def now_playing():
         'progress_ms': data['progress_ms'],
         'duration_ms': track['duration_ms'],
         'track_id': track['id'],
-        'is_playing': data.get('is_playing', False)
+        'is_playing': data.get('is_playing', False),
+        'shuffle': bool(data.get('shuffle_state')),
+        'repeat': data.get('repeat_state') or 'off',
+        'device': {
+            'id': device.get('id'),
+            'name': device.get('name'),
+            'volume_percent': device.get('volume_percent'),
+            'supports_volume': device.get('supports_volume', True),
+        },
     })
 
 
@@ -525,7 +547,109 @@ TARGET_LANGUAGES = frozenset('''
     ZH-HANS ZH-HANT ZU
 '''.split())
 
-PLAYBACK_ACTIONS = ('play', 'pause', 'next', 'previous', 'seek', 'play_track')
+@app.route('/devices')
+def devices():
+    """Spotify devices this account can play on, for the device picker."""
+    if not get_access_token():
+        return jsonify({'error': 'Not authenticated'}), 401
+    res = spotify_get(f"{SPOTIFY_API_URL}/me/player/devices")
+    if res is None or res.status_code == 401:
+        return jsonify({'error': 'Not authenticated'}), 401
+    if res.status_code != 200:
+        return jsonify({'devices': []})
+    try:
+        listed = res.json().get('devices') or []
+    except ValueError:
+        listed = []
+    payload = jsonify({'devices': [{
+        'id': d.get('id'),
+        'name': d.get('name'),
+        'type': d.get('type'),
+        'is_active': bool(d.get('is_active')),
+        'is_restricted': bool(d.get('is_restricted')),
+    } for d in listed if d.get('id')]})
+    payload.headers['Cache-Control'] = 'no-store'
+    return payload
+
+
+LIBRARY_LIMIT = 20   # per kind — the card shows a sidebar's worth
+
+
+def thumbnail(images):
+    """Spotify lists artwork largest first (640, 300, 64). The middle size is
+    sharp at the card's size on a retina screen without the full download."""
+    images = images or []
+    if not images:
+        return None
+    return images[1]['url'] if len(images) > 1 else images[0]['url']
+
+
+def library_items(kind, payload):
+    """One kind of Your Library entry, in the Figma's "Album • Artist" style."""
+    items = []
+    for entry in payload.get('items') or []:
+        if not entry:
+            continue
+        if kind == 'playlist':
+            owner = (entry.get('owner') or {}).get('display_name') or ''
+            name, subtitle, uri = entry.get('name'), f'Playlist • {owner}', entry.get('uri')
+            image = thumbnail(entry.get('images'))
+        elif kind == 'album':
+            album = entry.get('album') or {}
+            artists = ', '.join(a['name'] for a in album.get('artists') or [])
+            name, subtitle, uri = album.get('name'), f'Album • {artists}', album.get('uri')
+            image = thumbnail(album.get('images'))
+        else:
+            show = entry.get('show') or {}
+            name, subtitle, uri = show.get('name'), f"Podcast • {show.get('publisher') or ''}", show.get('uri')
+            image = thumbnail(show.get('images'))
+        if name and uri:
+            items.append({'kind': kind, 'uri': uri, 'name': name,
+                          'subtitle': subtitle.rstrip(' •'), 'image': image})
+    return items
+
+
+@app.route('/library')
+def library():
+    """Your Library: the account's playlists, saved albums and podcasts."""
+    if not get_access_token():
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    sources = [
+        ('playlist', f"{SPOTIFY_API_URL}/me/playlists?limit={LIBRARY_LIMIT}"),
+        ('album', f"{SPOTIFY_API_URL}/me/albums?limit={LIBRARY_LIMIT}"),
+        ('show', f"{SPOTIFY_API_URL}/me/shows?limit={LIBRARY_LIMIT}"),
+    ]
+    items = []
+    for kind, url in sources:
+        res = spotify_get(url)
+        if res is None or res.status_code == 401:
+            return jsonify({'error': 'Not authenticated'}), 401
+        if res.status_code == 403:
+            return jsonify({'error': 'Spotify refused access',
+                            'reason': spotify_access_problem(res)}), 403
+        if res.status_code != 200:
+            continue   # show what we can rather than nothing
+        try:
+            items += library_items(kind, res.json())
+        except (ValueError, KeyError, TypeError):
+            continue
+
+    payload = jsonify({'items': items})
+    payload.headers['Cache-Control'] = 'no-store'
+    return payload
+
+
+PLAYBACK_ACTIONS = ('play', 'pause', 'next', 'previous', 'seek', 'play_track',
+                    'play_context', 'shuffle', 'repeat', 'volume', 'transfer')
+
+# what Your Library can start playing: a whole playlist, album or podcast
+CONTEXT_URI_PATTERN = re.compile(r'^spotify:(playlist|album|show):[A-Za-z0-9]{1,64}$')
+
+REPEAT_STATES = ('off', 'context', 'track')
+
+# Spotify device ids are opaque, but only ever letters, digits, - and _
+DEVICE_ID_PATTERN = re.compile(r'^[A-Za-z0-9_-]{1,128}$')
 
 # Spotify track ids are base62; anything else has no business in a track URI
 TRACK_ID_PATTERN = re.compile(r'^[A-Za-z0-9]{1,64}$')
@@ -593,16 +717,41 @@ def playback():
     if not access_token:
         return jsonify({'error': 'Not authenticated'}), 401
 
-    action = request.json.get('action')
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({'error': 'expected a JSON object'}), 400
+
+    action = body.get('action')
     if action not in PLAYBACK_ACTIONS:
         return jsonify({'error': 'Invalid action'}), 400
 
-    track_id = request.json.get('track_id')
+    track_id = body.get('track_id')
     if action == 'play_track':
         if not isinstance(track_id, str) or not TRACK_ID_PATTERN.match(track_id):
             return jsonify({'error': 'track_id must be a Spotify track id'}), 400
 
-    position_ms = request.json.get('position_ms')
+    context_uri = body.get('context_uri')
+    if action == 'play_context' and (not isinstance(context_uri, str)
+                                     or not CONTEXT_URI_PATTERN.match(context_uri)):
+        return jsonify({'error': 'context_uri must be a Spotify playlist, album or show'}), 400
+
+    state = body.get('state')
+    if action == 'shuffle' and not isinstance(state, bool):
+        return jsonify({'error': 'state must be true or false'}), 400
+    if action == 'repeat' and state not in REPEAT_STATES:
+        return jsonify({'error': 'state must be off, context or track'}), 400
+
+    volume = body.get('volume_percent')
+    if action == 'volume' and (isinstance(volume, bool) or not isinstance(volume, int)
+                               or not 0 <= volume <= 100):
+        return jsonify({'error': 'volume_percent must be 0 to 100'}), 400
+
+    device_id = body.get('device_id')
+    if action == 'transfer' and (not isinstance(device_id, str)
+                                 or not DEVICE_ID_PATTERN.match(device_id)):
+        return jsonify({'error': 'device_id must be a Spotify device id'}), 400
+
+    position_ms = body.get('position_ms')
     if action == 'seek':
         # bool is an int subclass, so reject it explicitly
         if isinstance(position_ms, bool) or not isinstance(position_ms, int):
@@ -624,6 +773,23 @@ def playback():
                 f"{SPOTIFY_API_URL}/me/player/play",
                 json={'uris': [f'spotify:track:{track_id}']}
             )
+        if action == 'play_context':
+            return spotify_put(f"{SPOTIFY_API_URL}/me/player/play",
+                               json={'context_uri': context_uri})
+        if action == 'shuffle':
+            return spotify_put(f"{SPOTIFY_API_URL}/me/player/shuffle",
+                               params={'state': 'true' if state else 'false'})
+        if action == 'repeat':
+            return spotify_put(f"{SPOTIFY_API_URL}/me/player/repeat",
+                               params={'state': state})
+        if action == 'volume':
+            return spotify_put(f"{SPOTIFY_API_URL}/me/player/volume",
+                               params={'volume_percent': volume})
+        if action == 'transfer':
+            # keep playing if it was, on the new device
+            return spotify_put(f"{SPOTIFY_API_URL}/me/player",
+                               json={'device_ids': [device_id],
+                                     'play': bool(body.get('play'))})
         return spotify_put(
             f"{SPOTIFY_API_URL}/me/player/seek?position_ms={position_ms}"
         )

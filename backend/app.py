@@ -1,5 +1,6 @@
 from flask import Flask, redirect, request, session, jsonify, render_template
 from dotenv import load_dotenv
+import functools
 import os
 import secrets
 import requests
@@ -7,6 +8,7 @@ import urllib.parse
 import re
 import json
 
+import db
 from romanised import detect_language
 
 load_dotenv()
@@ -42,33 +44,11 @@ SCOPE = 'user-read-currently-playing user-read-playback-state user-modify-playba
 # how many 'recently played' tracks the sidebar shows
 RECENT_LIMIT = 2
 
-import sqlite3
-
-DB_PATH = os.path.join(os.path.dirname(__file__), 'translations.db')
-
 # how long to trust "LRCLIB has no lyrics" before asking again — people add
 # lyrics to LRCLIB all the time
-LYRICS_MISS_TTL_HOURS = 6
+LYRICS_MISS_TTL_SECONDS = 6 * 60 * 60
 
-def init_db():
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS translations (
-                cache_key TEXT PRIMARY KEY,
-                lyrics_json TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        # tracks LRCLIB had nothing for, so a replay doesn't ask it again
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS lyrics_misses (
-                track_id TEXT PRIMARY KEY,
-                checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        conn.commit()
-
-init_db()
+db.init_db()
 
 
 def parse_lrc(lrc_text):
@@ -308,6 +288,12 @@ def callback():
 
     session['access_token'] = token_data['access_token']
     session['refresh_token'] = token_data['refresh_token']
+    # this login may be a different account from the last one
+    session.pop('user_id', None)
+    try:
+        current_user_id()
+    except requests.RequestException:
+        pass   # looked up again on the first request that needs it
 
     return redirect('/')
 
@@ -528,6 +514,17 @@ def recently_played():
     return payload
 
 
+# DeepL's target languages (GET /v2/languages?type=target), plus plain 'EN',
+# which DeepL still accepts and the app has always used
+TARGET_LANGUAGES = frozenset('''
+    AF AN AR AS AY AZ BA BE BG BN BR BS CA CS CY DA DE DE-CH DE-DE EL EN
+    EN-GB EN-US EO ES ES-419 ES-ES ET EU FA FI FR FR-CA FR-FR GA GL GN GU HA
+    HE HI HR HT HU HY ID IG IS IT JA JV KA KK KO KY LA LB LN LT LV MG MI MK
+    ML MN MR MS MT MY NB NE NL OC OM PA PL PS PT-BR PT-PT QU RO RU SA SK SL
+    SQ SR ST SU SV SW TA TE TG TH TK TL TN TR TS TT UK UR UZ VI WO XH YI ZH
+    ZH-HANS ZH-HANT ZU
+'''.split())
+
 PLAYBACK_ACTIONS = ('play', 'pause', 'next', 'previous', 'seek', 'play_track')
 
 # Spotify track ids are base62; anything else has no business in a track URI
@@ -694,9 +691,13 @@ def translate():
 
     if not track_id or not song or not artist:
         return jsonify({'error': 'song, artist and track_id parameters required'}), 400
+    # it's part of the cache key, so anything DeepL can't use would only
+    # fill the cache with junk
+    if target_lang not in TARGET_LANGUAGES:
+        return jsonify({'error': 'Unsupported target_lang'}), 400
 
     cache_key = f"{track_id}_{target_lang}"
-    with sqlite3.connect(DB_PATH) as conn:
+    with db.connect() as conn:
         row = conn.execute(
             'SELECT lyrics_json FROM translations WHERE cache_key = ?',
             (cache_key,)
@@ -709,9 +710,8 @@ def translate():
             })
 
         recent_miss = conn.execute(
-            'SELECT 1 FROM lyrics_misses WHERE track_id = ? '
-            'AND checked_at > datetime(\'now\', ?)',
-            (track_id, f'-{LYRICS_MISS_TTL_HOURS} hours')
+            'SELECT 1 FROM lyrics_misses WHERE track_id = ? AND checked_at > ?',
+            (track_id, db.now() - LYRICS_MISS_TTL_SECONDS)
         ).fetchone()
         if recent_miss:
             return jsonify({'translated': False, 'message': 'No lyrics found'})
@@ -724,12 +724,12 @@ def translate():
         return jsonify({'error': 'Lyrics service unavailable'}), 502
 
     if not lyrics_data.get('found'):
-        with sqlite3.connect(DB_PATH) as conn:
+        with db.connect() as conn:
             conn.execute(
-                'INSERT OR REPLACE INTO lyrics_misses (track_id) VALUES (?)',
-                (track_id,)
+                'INSERT INTO lyrics_misses (track_id, checked_at) VALUES (?, ?) '
+                'ON CONFLICT (track_id) DO UPDATE SET checked_at = excluded.checked_at',
+                (track_id, db.now())
             )
-            conn.commit()
         return jsonify({
             'translated': False,
             'message': lyrics_data.get('message', 'No lyrics found')
@@ -778,18 +778,314 @@ def translate():
             'detected_language': translations[i]['detected_source_language']
         })
 
-    with sqlite3.connect(DB_PATH) as conn:
+    with db.connect() as conn:
         conn.execute(
-            'INSERT OR REPLACE INTO translations (cache_key, lyrics_json) VALUES (?, ?)',
+            'INSERT INTO translations (cache_key, lyrics_json) VALUES (?, ?) '
+            'ON CONFLICT (cache_key) DO UPDATE SET lyrics_json = excluded.lyrics_json',
             (cache_key, json.dumps(combined))
         )
-        conn.commit()
 
     return jsonify({
         'translated': True,
         'cached': False,
         'lyrics': combined
     })
+
+
+
+# ── per-user data ──
+#
+# Everything below belongs to one Spotify account, identified by its Spotify
+# user id. Translations themselves stay shared: they're the same for everyone.
+
+def save_user(user_id, display_name=None):
+    with db.connect() as conn:
+        conn.execute(
+            'INSERT INTO users (spotify_id, display_name, created_at, last_seen_at) '
+            'VALUES (?, ?, ?, ?) ON CONFLICT (spotify_id) DO UPDATE SET '
+            'display_name = COALESCE(excluded.display_name, users.display_name), '
+            'last_seen_at = excluded.last_seen_at',
+            (user_id, display_name, db.now(), db.now())
+        )
+
+
+def current_user_id():
+    """The signed-in Spotify account's id, looked up once per session."""
+    user_id = session.get('user_id')
+    if user_id:
+        return user_id
+    if not get_access_token():
+        return None
+    res = spotify_get(f"{SPOTIFY_API_URL}/me")
+    if res is None or res.status_code != 200:
+        return None
+    try:
+        me = res.json()
+    except ValueError:
+        return None
+    user_id = me.get('id')
+    if not isinstance(user_id, str) or not user_id:
+        return None
+    save_user(user_id, me.get('display_name'))
+    session['user_id'] = user_id
+    return user_id
+
+
+def require_user(view):
+    """Run the view with the signed-in user's id, or answer 401."""
+    @functools.wraps(view)
+    def wrapper(*args, **kwargs):
+        user_id = current_user_id()
+        if not user_id:
+            return jsonify({'error': 'Not authenticated'}), 401
+        return view(user_id, *args, **kwargs)
+    return wrapper
+
+
+LANG_CODE_PATTERN = re.compile(r'^[A-Z]{2,3}(-[A-Z]{2,4})?$')
+MAX_TEXT = 300
+
+
+def track_details(body, track_id=None):
+    """The track a client describes, checked field by field. The id comes
+    from the URL when there is one, otherwise from the body.
+
+    Returns (details, None), or (None, message) when something is off. These
+    are shown back to the user later, so nothing unchecked gets stored.
+    """
+    if not isinstance(body, dict):
+        return None, 'expected a JSON object'
+    if track_id is None:
+        track_id = body.get('track_id')
+    if not isinstance(track_id, str) or not TRACK_ID_PATTERN.match(track_id):
+        return None, 'track_id must be a Spotify track id'
+
+    details = {'track_id': track_id}
+    for field in ('song', 'artist'):
+        value = body.get(field)
+        if not isinstance(value, str) or not value.strip() or len(value) > MAX_TEXT:
+            return None, f'{field} is required'
+        details[field] = value.strip()
+
+    album = body.get('album')
+    if album is not None and (not isinstance(album, str) or len(album) > MAX_TEXT):
+        return None, 'album must be text'
+    details['album'] = album
+
+    # rendered as an <img src>, so only ever an https URL
+    art = body.get('album_art')
+    if art is not None and (not isinstance(art, str) or len(art) > 500
+                            or not art.startswith('https://')):
+        return None, 'album_art must be an https URL'
+    details['album_art'] = art
+
+    duration = body.get('duration_ms')
+    if duration is not None and (isinstance(duration, bool)
+                                 or not isinstance(duration, int) or duration < 0):
+        return None, 'duration_ms must be a positive integer'
+    details['duration_ms'] = duration
+
+    for field in ('source_lang', 'target_lang'):
+        value = body.get(field)
+        if value is not None and (not isinstance(value, str)
+                                  or not LANG_CODE_PATTERN.match(value)):
+            return None, f'{field} must be a language code'
+        details[field] = value
+
+    return details, None
+
+
+HISTORY_PAGE = 50
+HISTORY_MAX = 200
+
+
+@app.route('/history', methods=['POST'])
+@require_user
+def record_listen(user_id):
+    """Note a song the user just listened to with translations showing."""
+    track, error = track_details(request.get_json(silent=True))
+    if error:
+        return jsonify({'error': error}), 400
+
+    with db.connect() as conn:
+        conn.execute(
+            'INSERT INTO listen_history (spotify_id, track_id, song, artist, '
+            'album_art, source_lang, target_lang, play_count, last_played_at) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?) '
+            'ON CONFLICT (spotify_id, track_id) DO UPDATE SET '
+            'song = excluded.song, artist = excluded.artist, '
+            'album_art = COALESCE(excluded.album_art, listen_history.album_art), '
+            'source_lang = COALESCE(excluded.source_lang, listen_history.source_lang), '
+            'target_lang = COALESCE(excluded.target_lang, listen_history.target_lang), '
+            'play_count = listen_history.play_count + 1, '
+            'last_played_at = excluded.last_played_at',
+            (user_id, track['track_id'], track['song'], track['artist'],
+             track['album_art'], track['source_lang'], track['target_lang'],
+             db.now())
+        )
+    return jsonify({'recorded': True})
+
+
+@app.route('/history')
+@require_user
+def history(user_id):
+    """Recently Translated, newest first, optionally for one language."""
+    lang = request.args.get('lang')
+    if lang is not None and not LANG_CODE_PATTERN.match(lang):
+        return jsonify({'error': 'lang must be a language code'}), 400
+    try:
+        limit = min(max(int(request.args.get('limit', HISTORY_PAGE)), 1), HISTORY_MAX)
+    except ValueError:
+        return jsonify({'error': 'limit must be a number'}), 400
+
+    where, params = 'spotify_id = ?', [user_id]
+    if lang:
+        where += ' AND source_lang = ?'
+        params.append(lang)
+
+    with db.connect() as conn:
+        rows = conn.execute(
+            'SELECT track_id, song, artist, album_art, source_lang, target_lang, '
+            f'play_count, last_played_at FROM listen_history WHERE {where} '
+            'ORDER BY last_played_at DESC, track_id LIMIT ?',
+            (*params, limit)
+        ).fetchall()
+        # the language chips and "Show all 47 songs" count every song, not
+        # just this page
+        languages = conn.execute(
+            'SELECT source_lang, COUNT(*) FROM listen_history '
+            'WHERE spotify_id = ? AND source_lang IS NOT NULL '
+            'GROUP BY source_lang ORDER BY COUNT(*) DESC, source_lang',
+            (user_id,)
+        ).fetchall()
+        total = conn.execute(
+            'SELECT COUNT(*) FROM listen_history WHERE spotify_id = ?', (user_id,)
+        ).fetchone()[0]
+
+    keys = ('track_id', 'song', 'artist', 'album_art', 'source_lang',
+            'target_lang', 'play_count', 'last_played_at')
+    payload = jsonify({
+        'tracks': [dict(zip(keys, row)) for row in rows],
+        'languages': [{'lang': lang_, 'count': count} for lang_, count in languages],
+        'total': total,
+    })
+    payload.headers['Cache-Control'] = 'no-store'
+    return payload
+
+
+FAVOURITE_KEYS = ('track_id', 'song', 'artist', 'album', 'album_art',
+                  'duration_ms', 'source_lang', 'added_at')
+
+
+@app.route('/favourites')
+@require_user
+def favourites(user_id):
+    with db.connect() as conn:
+        rows = conn.execute(
+            f'SELECT {", ".join(FAVOURITE_KEYS)} FROM favourites '
+            'WHERE spotify_id = ? ORDER BY added_at DESC, track_id',
+            (user_id,)
+        ).fetchall()
+    payload = jsonify({'tracks': [dict(zip(FAVOURITE_KEYS, row)) for row in rows]})
+    payload.headers['Cache-Control'] = 'no-store'
+    return payload
+
+
+@app.route('/favourites/<track_id>', methods=['PUT'])
+@require_user
+def add_favourite(user_id, track_id):
+    """Save a song. Saving it again just refreshes its details."""
+    track, error = track_details(request.get_json(silent=True), track_id)
+    if error:
+        return jsonify({'error': error}), 400
+    with db.connect() as conn:
+        conn.execute(
+            'INSERT INTO favourites (spotify_id, track_id, song, artist, album, '
+            'album_art, duration_ms, source_lang, added_at) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) '
+            'ON CONFLICT (spotify_id, track_id) DO UPDATE SET '
+            'song = excluded.song, artist = excluded.artist, '
+            'album = COALESCE(excluded.album, favourites.album), '
+            'album_art = COALESCE(excluded.album_art, favourites.album_art), '
+            'duration_ms = COALESCE(excluded.duration_ms, favourites.duration_ms), '
+            'source_lang = COALESCE(excluded.source_lang, favourites.source_lang)',
+            (user_id, track['track_id'], track['song'], track['artist'],
+             track['album'], track['album_art'], track['duration_ms'],
+             track['source_lang'], db.now())
+        )
+    return jsonify({'favourite': True})
+
+
+@app.route('/favourites/<track_id>', methods=['DELETE'])
+@require_user
+def remove_favourite(user_id, track_id):
+    with db.connect() as conn:
+        conn.execute(
+            'DELETE FROM favourites WHERE spotify_id = ? AND track_id = ?',
+            (user_id, track_id)
+        )
+    return ('', 204)
+
+
+@app.route('/song-requests', methods=['POST'])
+@require_user
+def request_song(user_id):
+    """'Request this song!' — ask for lyrics we couldn't find."""
+    track, error = track_details(request.get_json(silent=True))
+    if error:
+        return jsonify({'error': error}), 400
+    with db.connect() as conn:
+        conn.execute(
+            'INSERT INTO song_requests (spotify_id, track_id, song, artist, requested_at) '
+            'VALUES (?, ?, ?, ?, ?) ON CONFLICT (spotify_id, track_id) DO NOTHING',
+            (user_id, track['track_id'], track['song'], track['artist'], db.now())
+        )
+    return jsonify({'requested': True})
+
+
+def user_prefs(conn, user_id):
+    row = conn.execute(
+        'SELECT target_lang, auto_translate FROM users WHERE spotify_id = ?',
+        (user_id,)
+    ).fetchone()
+    if not row:
+        return {'target_lang': 'EN', 'auto_translate': True}
+    return {'target_lang': row[0], 'auto_translate': bool(row[1])}
+
+
+@app.route('/prefs')
+@require_user
+def get_prefs(user_id):
+    with db.connect() as conn:
+        return jsonify(user_prefs(conn, user_id))
+
+
+@app.route('/prefs', methods=['PUT'])
+@require_user
+def update_prefs(user_id):
+    """Change any of the user's settings; fields left out stay as they are."""
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({'error': 'expected a JSON object'}), 400
+
+    changes = {}
+    if 'target_lang' in body:
+        if body['target_lang'] not in TARGET_LANGUAGES:
+            return jsonify({'error': 'Unsupported target_lang'}), 400
+        changes['target_lang'] = body['target_lang']
+    if 'auto_translate' in body:
+        if not isinstance(body['auto_translate'], bool):
+            return jsonify({'error': 'auto_translate must be true or false'}), 400
+        changes['auto_translate'] = body['auto_translate']
+
+    # the user row may predate this database (e.g. a session from before it)
+    save_user(user_id)
+    with db.connect() as conn:
+        for column, value in changes.items():
+            # column names come from the fixed set above, never from the request
+            conn.execute(f'UPDATE users SET {column} = ? WHERE spotify_id = ?',
+                         (value, user_id))
+        return jsonify(user_prefs(conn, user_id))
 
 
 if __name__ == '__main__':

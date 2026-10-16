@@ -401,15 +401,13 @@ class DeepLResponse(FakeResponse):
 
 
 @pytest.fixture
-def translate(client, spotify, monkeypatch, tmp_path):
+def translate(client, spotify, database, monkeypatch):
     """Client with a throwaway cache, LRCLIB and DeepL stubbed.
 
     Returns (client, stub). Set stub['lyrics'] to what fetch_lyrics returns,
     or to an exception to raise; stub['deepl'] likewise for the DeepL call.
     stub['lyrics_calls'] and stub['deepl_bodies'] record what was asked.
     """
-    monkeypatch.setattr(spotify, 'DB_PATH', str(tmp_path / 'cache.db'))
-    spotify.init_db()
     stub = {'lyrics': FOUND, 'lyrics_calls': 0, 'deepl_bodies': [],
             'deepl': DeepLResponse(200, {'translations': [
                 {'text': 'I see life in pink', 'detected_source_language': 'FR'}]})}
@@ -613,3 +611,24 @@ def test_other_languages_are_left_to_deepl_detection(translate):
     client, stub = translate
     client.get(TRANSLATE_URL)
     assert 'source_lang' not in stub['deepl_bodies'][0]
+
+
+def test_translate_rejects_a_target_deepl_doesnt_offer(translate):
+    """target_lang is part of the cache key — junk would only fill the cache."""
+    client, stub = translate
+    resp = client.get(TRANSLATE_URL + '&target_lang=XX')
+    assert resp.status_code == 400
+    assert stub['deepl_bodies'] == []
+
+
+def test_old_text_dated_misses_are_cleared(database):
+    """Local files from before epoch timestamps hold text dates, which SQLite
+    sorts above any number — they'd never expire."""
+    import db
+    if database != 'sqlite':
+        pytest.skip('only local SQLite files can hold the old format')
+    with db.connect() as conn:
+        conn.execute("INSERT INTO lyrics_misses VALUES ('OLD', '2026-06-18 10:00:00')")
+    db.init_db()
+    with db.connect() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM lyrics_misses').fetchone()[0] == 0

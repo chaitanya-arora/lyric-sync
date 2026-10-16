@@ -403,13 +403,34 @@ function updateBottomBar(data) {
 //  TRANSLATION TOGGLE
 // ─────────────────────────────────────────
 
-function toggleTranslation() {
-  translationEnabled = !translationEnabled
+function applyTranslationEnabled(enabled) {
+  translationEnabled = enabled
   const toggle = document.getElementById('toggle-switch')
   toggle.classList.toggle('on', translationEnabled)
   document.querySelectorAll('.lyric-translation').forEach(el => {
     el.style.display = translationEnabled ? '' : 'none'
   })
+}
+
+function toggleTranslation() {
+  applyTranslationEnabled(!translationEnabled)
+  // remembered for next time, on any device — the switch works either way
+  fetch('/prefs', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ auto_translate: translationEnabled })
+  }).catch(e => console.warn('Saving the translation setting failed:', e))
+}
+
+async function loadPrefs() {
+  try {
+    const res = await fetch('/prefs')
+    if (!res.ok) return
+    const prefs = await res.json()
+    applyTranslationEnabled(prefs.auto_translate !== false)
+  } catch (e) {
+    console.warn('Loading settings failed:', e)
+  }
 }
 
 // ─────────────────────────────────────────
@@ -742,7 +763,7 @@ function buildRecentItem(track) {
 
 function renderRecent(tracks) {
   if (!tracks.length) {
-    recentMessage('Nothing here yet — play something on Spotify.')
+    recentMessage('Nothing translated yet — play a song in another language on Spotify.')
     return
   }
   recentList.innerHTML = ''
@@ -764,20 +785,37 @@ async function playTrack(track) {
   }
 }
 
+// Recently Translated lists songs heard with translations showing, so a song
+// goes in once its translated lyrics are on screen
+function recordListen(track, sourceLang) {
+  fetch('/history', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      track_id: track.track_id,
+      song: track.song,
+      artist: track.artist,
+      album_art: track.album_art || null,
+      source_lang: sourceLang || null,
+      target_lang: 'EN'
+    })
+  }).catch(e => console.warn('Recording history failed:', e))
+}
+
 async function openRecent() {
   recentModal.style.display = 'flex'
   recentMessage('Loading…')
   try {
-    const res = await fetch('/recently-played')
+    const res = await fetch('/history')
     if (res.status === 401) {
       recentMessage('Connect Spotify to see your listening history.')
       return
     }
-    if (!res.ok) throw new Error(`recently-played: ${res.status}`)
+    if (!res.ok) throw new Error(`history: ${res.status}`)
     const data = await res.json()
     renderRecent(data.tracks || [])
   } catch (e) {
-    console.error('Recently played error:', e)
+    console.error('Recently translated error:', e)
     recentMessage("Couldn't load your history — try again in a moment.")
   }
 }
@@ -1009,6 +1047,7 @@ async function fetchNowPlaying() {
     if (!isLoggedIn) {
       accessProblem = null
       isLoggedIn = true
+      loadPrefs()
       showBars()
       fetchContext()
     }
@@ -1197,6 +1236,7 @@ async function fetchNowPlaying() {
     }
 
     renderLyrics(currentLyrics)
+    if (translationEnabled) recordListen(data, lang)
     currentContentState = 'lyrics'
     showContent('lyrics')
 

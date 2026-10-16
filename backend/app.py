@@ -7,6 +7,8 @@ import urllib.parse
 import re
 import json
 
+from romanised import detect_language
+
 load_dotenv()
 
 app = Flask(__name__)
@@ -736,17 +738,25 @@ def translate():
     lyric_lines = lyrics_data['lyrics']
     texts_to_translate = [line['text'] for line in lyric_lines]
 
+    deepl_body = {
+        'text': texts_to_translate,
+        'target_lang': target_lang,
+        # Each line is translated on its own; telling DeepL these are
+        # song lyrics steers short, ambiguous lines. Context isn't billed.
+        'context': f'Lyrics of the song "{song}" by {artist}.',
+    }
+
+    # DeepL can't place romanised Hindi or Punjabi by itself, but translates
+    # it well once told. English lines in the same song come back unchanged.
+    romanised_lang = detect_language(texts_to_translate)
+    if romanised_lang:
+        deepl_body['source_lang'] = romanised_lang
+
     try:
         deepl_response = requests.post(
             DEEPL_API_URL,
             headers={'Authorization': f'DeepL-Auth-Key {DEEPL_API_KEY}'},
-            json={
-                'text': texts_to_translate,
-                'target_lang': target_lang,
-                # Each line is translated on its own; telling DeepL these are
-                # song lyrics steers short, ambiguous lines. Context isn't billed.
-                'context': f'Lyrics of the song "{song}" by {artist}.',
-            },
+            json=deepl_body,
             timeout=10
         )
     except requests.RequestException:

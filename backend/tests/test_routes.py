@@ -594,3 +594,22 @@ def test_now_playing_names_why_spotify_refused(client, spotify, monkeypatch,
 def test_now_playing_403_without_a_body(client, spotify, monkeypatch):
     monkeypatch.setattr(spotify, 'spotify_get', lambda url, **kw: FakeResponse(403))
     assert client.get('/now-playing').get_json()['reason'] == 'forbidden'
+
+
+def test_romanised_punjabi_is_sent_as_punjabi(translate):
+    """DeepL's own guess for romanised Punjabi is Wolof or Oromo."""
+    client, stub = translate
+    lines = ['Main tainu yaad karda haan', 'Dil mera tere naal ae',
+             'Kithe chali ae sohniye', 'Mainu vi dass de']
+    stub['lyrics'] = {'found': True, 'synced': True,
+                      'lyrics': [{'time_ms': i, 'text': t} for i, t in enumerate(lines)]}
+    stub['deepl'] = DeepLResponse(200, {'translations': [
+        {'text': 'x', 'detected_source_language': 'PA'}] * len(lines)})
+    client.get(TRANSLATE_URL)
+    assert stub['deepl_bodies'][0]['source_lang'] == 'PA'
+
+
+def test_other_languages_are_left_to_deepl_detection(translate):
+    client, stub = translate
+    client.get(TRANSLATE_URL)
+    assert 'source_lang' not in stub['deepl_bodies'][0]

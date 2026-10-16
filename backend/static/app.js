@@ -852,6 +852,7 @@ async function disconnectSpotify() {
 // after Disconnect, or when the server says the session has gone.
 function signedOut() {
   isLoggedIn = false
+  accessProblem = null
   currentTrackId = null
   currentTrackData = null
   localRecent = []
@@ -892,6 +893,47 @@ async function prefetchNextTrack() {
   } finally {
     isPrefetching = false
   }
+}
+
+// ─────────────────────────────────────────
+//  SPOTIFY REFUSING ACCESS
+// ─────────────────────────────────────────
+
+// LyricSync runs in Spotify's development mode, where Spotify can refuse the
+// app for reasons nothing on this page can fix. Say which, rather than
+// leaving the connect screen up as if signing in had silently failed.
+const ACCESS_PROBLEMS = {
+  owner_premium_required: {
+    title: 'Spotify access is paused',
+    desc: "Spotify needs LyricSync's owner to have an active Premium subscription. " +
+          'Once it\'s renewed, Spotify can take a few hours to let LyricSync back in — ' +
+          'this page will pick it up by itself.',
+    canReconnect: false
+  },
+  user_not_registered: {
+    title: "This account isn't approved yet",
+    desc: "LyricSync is in Spotify's development mode, so only approved accounts can use it. " +
+          'Ask the app owner to add your Spotify email, or connect a different account.',
+    canReconnect: true
+  },
+  forbidden: {
+    title: 'Spotify refused access',
+    desc: "Spotify isn't letting LyricSync read your playback right now. " +
+          'This page will keep trying.',
+    canReconnect: true
+  }
+}
+let accessProblem = null   // reason currently on screen, so polls don't redraw it
+
+function showAccessProblem(reason) {
+  if (!Object.hasOwn(ACCESS_PROBLEMS, reason)) reason = 'forbidden'
+  if (reason === accessProblem) return
+  signedOut()
+  accessProblem = reason
+  const problem = ACCESS_PROBLEMS[reason]
+  document.getElementById('welcome-tagline').textContent = problem.title
+  document.getElementById('welcome-desc').textContent = problem.desc
+  welcomeLoginBtn.classList.toggle('hidden', !problem.canReconnect)
 }
 
 // ─────────────────────────────────────────
@@ -952,12 +994,20 @@ async function fetchNowPlaying() {
       return
     }
 
+    if (response.status === 403) {
+      let reason = 'forbidden'
+      try { reason = (await response.json()).reason || reason } catch (e) { /* no JSON body */ }
+      showAccessProblem(reason)
+      return
+    }
+
     if (!response.ok) {
       console.warn('now-playing error:', response.status)
       return
     }
 
     if (!isLoggedIn) {
+      accessProblem = null
       isLoggedIn = true
       showBars()
       fetchContext()

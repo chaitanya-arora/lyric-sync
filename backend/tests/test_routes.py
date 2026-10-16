@@ -569,3 +569,28 @@ def test_spotify_calls_carry_a_timeout(spotify, monkeypatch):
     monkeypatch.setattr(spotify.requests, 'get', fake_get)
     spotify.spotify_get('https://api.spotify.com/v1/me')
     assert seen['timeout'] == spotify.SPOTIFY_TIMEOUT
+
+
+# --- Spotify refusing access ---
+
+@pytest.mark.parametrize('message, reason', [
+    ('Active premium subscription required for the owner of the app. When '
+     'the subscription status changes, it can take a few hours before '
+     'requests are allowed again.', 'owner_premium_required'),
+    ('Check settings on developer.spotify.com/dashboard, the user may not be '
+     'registered.', 'user_not_registered'),
+    ('Something new Spotify invented', 'forbidden'),
+])
+def test_now_playing_names_why_spotify_refused(client, spotify, monkeypatch,
+                                               message, reason):
+    body = {'error': {'status': 403, 'message': message}}
+    monkeypatch.setattr(spotify, 'spotify_get',
+                        lambda url, **kw: FakeResponse(403, body))
+    resp = client.get('/now-playing')
+    assert resp.status_code == 403
+    assert resp.get_json()['reason'] == reason
+
+
+def test_now_playing_403_without_a_body(client, spotify, monkeypatch):
+    monkeypatch.setattr(spotify, 'spotify_get', lambda url, **kw: FakeResponse(403))
+    assert client.get('/now-playing').get_json()['reason'] == 'forbidden'

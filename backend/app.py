@@ -330,6 +330,19 @@ def logout():
     return ('', 204)  # frontend handles showing the welcome screen
 
 
+def spotify_access_problem(response):
+    """Why Spotify answered 403, from the message in its error body."""
+    try:
+        message = ((response.json().get('error') or {}).get('message') or '').lower()
+    except ValueError:
+        message = ''
+    if 'premium' in message and 'owner' in message:
+        return 'owner_premium_required'
+    if 'not be registered' in message:
+        return 'user_not_registered'
+    return 'forbidden'
+
+
 @app.route('/now-playing')
 def now_playing():
     # This is polled with fetch, which can't follow a redirect to Spotify's
@@ -344,6 +357,14 @@ def now_playing():
 
     if response.status_code == 204:
         return jsonify({'playing': False, 'message': 'Nothing is currently playing'})
+
+    # Development-mode apps get refused outright, and the page used to sit on
+    # "Connect with Spotify" without saying why. Name the reason instead.
+    if response.status_code == 403:
+        return jsonify({
+            'error': 'Spotify refused access',
+            'reason': spotify_access_problem(response)
+        }), 403
 
     if response.status_code != 200:
         return jsonify({'error': f'Spotify API error: {response.status_code}'}), 502

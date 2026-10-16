@@ -87,7 +87,7 @@ pip install -r requirements.txt
 ```
 SPOTIFY_CLIENT_ID=your_id
 SPOTIFY_CLIENT_SECRET=your_secret
-SPOTIFY_REDIRECT_URI=http://localhost:5000/callback
+SPOTIFY_REDIRECT_URI=http://127.0.0.1:5000/callback
 DEEPL_API_KEY=your_key
 FLASK_SECRET_KEY=any_fixed_string
 ```
@@ -99,6 +99,8 @@ python app.py
 ```
 
 **6. Visit `http://127.0.0.1:5000/`**
+
+Use `127.0.0.1` rather than `localhost`, both in the redirect URI (Spotify only accepts loopback IPs for local redirects) and in the browser — login checks that the callback comes back to the same site that started it.
 
 ---
 

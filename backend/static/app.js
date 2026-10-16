@@ -892,6 +892,45 @@ async function prefetchNextTrack() {
 }
 
 // ─────────────────────────────────────────
+//  LYRICS RETRY
+// ─────────────────────────────────────────
+
+// Retrying on every 5s poll hammered LRCLIB and DeepL for as long as either
+// was down. Back off instead, and stop after a few attempts.
+const RETRY_BASE_MS = 5000
+const RETRY_MAX_MS = 60000
+const RETRY_ATTEMPTS = 5
+let failedTrackId = null
+let failedAttempts = 0
+let retryAt = 0
+
+function scheduleLyricsRetry(trackId) {
+  failedAttempts = trackId === failedTrackId ? failedAttempts + 1 : 1
+  failedTrackId = trackId
+  // the next poll treats the track as new again, which is what retries it
+  currentTrackId = null
+  currentContentState = null
+
+  if (failedAttempts >= RETRY_ATTEMPTS) {
+    retryAt = Infinity   // until the track changes
+    currentContentState = 'no-lyrics'
+    showContent('message', {
+      icon: '🎵',
+      title: "Couldn't load lyrics",
+      subtitle: 'The lyrics service isn\'t responding. Try this song again later.'
+    })
+    return
+  }
+
+  retryAt = Date.now() + Math.min(RETRY_BASE_MS * 2 ** (failedAttempts - 1), RETRY_MAX_MS)
+  showContent('message', {
+    icon: '⏳',
+    title: 'Fetching lyrics...',
+    subtitle: 'Taking a little longer than usual, hang tight.'
+  })
+}
+
+// ─────────────────────────────────────────
 //  MAIN FETCH LOOP
 // ─────────────────────────────────────────
 
@@ -1011,12 +1050,19 @@ async function fetchNowPlaying() {
       return
     }
 
+    // a failed lyrics load waits out its backoff before trying again
+    if (data.track_id === failedTrackId && Date.now() < retryAt) return
+
     // ── NEW TRACK ──
     // Record the outgoing track ourselves rather than waiting on Spotify. This
     // reads currentTrackData rather than lastKnownData: the paused branch moves
     // lastKnownData onto the new track, so it can't tell us what we left.
     if (currentTrackData && currentTrackData.track_id !== data.track_id) {
       rememberRecent(currentTrackData)
+    }
+    if (data.track_id !== failedTrackId) {
+      failedTrackId = null
+      failedAttempts = 0
     }
     currentTrackId = data.track_id
     currentTrackData = data
@@ -1041,23 +1087,18 @@ async function fetchNowPlaying() {
         `/translate?song=${encodeURIComponent(data.song)}&artist=${encodeURIComponent(data.artist)}&track_id=${encodeURIComponent(data.track_id)}&target_lang=EN`
       )
       if (!translateRes.ok) {
-        // server error (e.g. LRCLIB timeout) — reset track so next poll retries
-        currentTrackId = null
-        currentContentState = null
-        showContent('message', {
-          icon: '⏳',
-          title: 'Fetching lyrics...',
-          subtitle: 'Taking a little longer than usual, hang tight.'
-        })
+        // server error (e.g. LRCLIB timeout) — retry later rather than give up
+        scheduleLyricsRetry(data.track_id)
         return
       }
       translateData = await translateRes.json()
     } catch (e) {
-      // network error — same reset
-      currentTrackId = null
-      currentContentState = null
+      // network error — same retry
+      scheduleLyricsRetry(data.track_id)
       return
     }
+    failedTrackId = null
+    failedAttempts = 0
 
     if (!translateData.translated) {
       currentContentState = 'no-lyrics'

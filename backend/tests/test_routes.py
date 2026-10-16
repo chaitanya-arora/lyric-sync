@@ -4,6 +4,7 @@ No network and no credentials: every test swaps the spotify_* helpers for a
 canned response, so what's under test is our own handling of them.
 """
 import pytest
+import requests
 
 from conftest import FakeResponse, make_track
 
@@ -383,3 +384,103 @@ def test_play_track_wakes_an_idle_device_without_resuming_the_old_song(client, s
     assert transfers(calls) == [{'device_ids': ['PHONE'], 'play': False}]
     plays = [body for _, url, body in calls if url.endswith('/me/player/play')]
     assert plays == [{'uris': ['spotify:track:abc123']}] * 2, plays
+
+
+# --- /translate ---
+
+FOUND = {'found': True, 'synced': True,
+         'lyrics': [{'time_ms': 0, 'text': 'Je vois la vie en rose'}]}
+NOT_FOUND = {'found': False, 'message': 'No lyrics found for this track'}
+TRANSLATE_URL = '/translate?track_id=T1&song=La+Vie+en+Rose&artist=Edith+Piaf'
+
+
+class DeepLResponse(FakeResponse):
+    text = 'quota exceeded'
+
+
+@pytest.fixture
+def translate(client, spotify, monkeypatch, tmp_path):
+    """Client with a throwaway cache, LRCLIB and DeepL stubbed.
+
+    Returns (client, stub). Set stub['lyrics'] to what fetch_lyrics returns,
+    or to an exception to raise; stub['deepl'] likewise for the DeepL call.
+    stub['lyrics_calls'] and stub['deepl_bodies'] record what was asked.
+    """
+    monkeypatch.setattr(spotify, 'DB_PATH', str(tmp_path / 'cache.db'))
+    spotify.init_db()
+    stub = {'lyrics': FOUND, 'lyrics_calls': 0, 'deepl_bodies': [],
+            'deepl': DeepLResponse(200, {'translations': [
+                {'text': 'I see life in pink', 'detected_source_language': 'FR'}]})}
+
+    def fake_fetch(song, artist):
+        stub['lyrics_calls'] += 1
+        if isinstance(stub['lyrics'], Exception):
+            raise stub['lyrics']
+        return stub['lyrics']
+
+    def fake_post(url, **kwargs):
+        stub['deepl_bodies'].append(kwargs.get('json'))
+        if isinstance(stub['deepl'], Exception):
+            raise stub['deepl']
+        return stub['deepl']
+
+    monkeypatch.setattr(spotify, 'fetch_lyrics', fake_fetch)
+    monkeypatch.setattr(spotify.requests, 'post', fake_post)
+    return client, stub
+
+
+def test_translate_returns_lines_with_their_translation(translate):
+    client, _ = translate
+    lyrics = client.get(TRANSLATE_URL).get_json()['lyrics']
+    assert lyrics == [{'time_ms': 0, 'original': 'Je vois la vie en rose',
+                       'translation': 'I see life in pink',
+                       'detected_language': 'FR'}]
+
+
+def test_translate_tells_deepl_these_are_song_lyrics(translate):
+    client, stub = translate
+    client.get(TRANSLATE_URL)
+    assert 'La Vie en Rose' in stub['deepl_bodies'][0]['context']
+
+
+def test_translate_serves_repeats_from_the_cache(translate):
+    client, stub = translate
+    client.get(TRANSLATE_URL)
+    second = client.get(TRANSLATE_URL).get_json()
+    assert second['cached'] is True
+    assert len(stub['deepl_bodies']) == 1
+
+
+def test_translate_remembers_songs_without_lyrics(translate):
+    """A replay of a song LRCLIB had nothing for shouldn't ask it again."""
+    client, stub = translate
+    stub['lyrics'] = NOT_FOUND
+    first = client.get(TRANSLATE_URL)
+    second = client.get(TRANSLATE_URL)
+    assert first.get_json()['translated'] is False
+    assert second.get_json()['translated'] is False
+    assert stub['lyrics_calls'] == 1
+
+
+def test_lyrics_outage_is_retryable_not_a_miss(translate):
+    """A timeout used to read as "no lyrics", so the client never retried."""
+    client, stub = translate
+    stub['lyrics'] = requests.Timeout()
+    assert client.get(TRANSLATE_URL).status_code == 502
+    stub['lyrics'] = FOUND
+    assert client.get(TRANSLATE_URL).get_json()['translated'] is True
+
+
+def test_deepl_failure_is_retryable_and_hides_detail(translate):
+    client, stub = translate
+    stub['deepl'] = DeepLResponse(456, {})
+    resp = client.get(TRANSLATE_URL)
+    assert resp.status_code == 502
+    assert 'quota' not in resp.get_data(as_text=True)
+
+
+def test_deepl_timeout_is_retryable(translate):
+    client, stub = translate
+    stub['deepl'] = requests.ConnectionError()
+    assert client.get(TRANSLATE_URL).status_code == 502
+

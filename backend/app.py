@@ -33,6 +33,10 @@ import sqlite3
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'translations.db')
 
+# how long to trust "LRCLIB has no lyrics" before asking again — people add
+# lyrics to LRCLIB all the time
+LYRICS_MISS_TTL_HOURS = 6
+
 def init_db():
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute('''
@@ -40,6 +44,13 @@ def init_db():
                 cache_key TEXT PRIMARY KEY,
                 lyrics_json TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        # tracks LRCLIB had nothing for, so a replay doesn't ask it again
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS lyrics_misses (
+                track_id TEXT PRIMARY KEY,
+                checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         conn.commit()
@@ -102,6 +113,9 @@ def fetch_lyrics(song, artist):
             timeout=10
         )
 
+        # an outage must not be remembered as "this song has no lyrics"
+        if search_response.status_code >= 500:
+            search_response.raise_for_status()
         if search_response.status_code != 200:
             return {'found': False, 'message': 'No lyrics found for this track'}
 
@@ -629,15 +643,28 @@ def translate():
                 'lyrics': json.loads(row[0])
             })
 
+        recent_miss = conn.execute(
+            'SELECT 1 FROM lyrics_misses WHERE track_id = ? '
+            'AND checked_at > datetime(\'now\', ?)',
+            (track_id, f'-{LYRICS_MISS_TTL_HOURS} hours')
+        ).fetchone()
+        if recent_miss:
+            return jsonify({'translated': False, 'message': 'No lyrics found'})
+
+    # A timeout or outage is not the same as "this song has no lyrics": answer
+    # with an error so the client retries, instead of a final "not found".
     try:
         lyrics_data = fetch_lyrics(song, artist)
-    except Exception as e:
-        return jsonify({
-            'translated': False,
-            'message': f'Lyrics fetch failed: {str(e)}'
-        })
+    except requests.RequestException:
+        return jsonify({'error': 'Lyrics service unavailable'}), 502
 
     if not lyrics_data.get('found'):
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute(
+                'INSERT OR REPLACE INTO lyrics_misses (track_id) VALUES (?)',
+                (track_id,)
+            )
+            conn.commit()
         return jsonify({
             'translated': False,
             'message': lyrics_data.get('message', 'No lyrics found')
@@ -646,18 +673,26 @@ def translate():
     lyric_lines = lyrics_data['lyrics']
     texts_to_translate = [line['text'] for line in lyric_lines]
 
-    deepl_response = requests.post(
-        DEEPL_API_URL,
-        headers={'Authorization': f'DeepL-Auth-Key {DEEPL_API_KEY}'},
-        json={'text': texts_to_translate, 'target_lang': target_lang},
-        timeout=10
-    )
+    try:
+        deepl_response = requests.post(
+            DEEPL_API_URL,
+            headers={'Authorization': f'DeepL-Auth-Key {DEEPL_API_KEY}'},
+            json={
+                'text': texts_to_translate,
+                'target_lang': target_lang,
+                # Each line is translated on its own; telling DeepL these are
+                # song lyrics steers short, ambiguous lines. Context isn't billed.
+                'context': f'Lyrics of the song "{song}" by {artist}.',
+            },
+            timeout=10
+        )
+    except requests.RequestException:
+        return jsonify({'error': 'Translation service unavailable'}), 502
 
     if deepl_response.status_code != 200:
-        return jsonify({
-            'error': f'DeepL error: {deepl_response.status_code}',
-            'detail': deepl_response.text
-        }), 400
+        app.logger.warning('DeepL error %s: %s',
+                           deepl_response.status_code, deepl_response.text[:200])
+        return jsonify({'error': f'DeepL error: {deepl_response.status_code}'}), 502
 
     translations = deepl_response.json()['translations']
 

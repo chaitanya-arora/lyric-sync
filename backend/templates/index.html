@@ -4,137 +4,130 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LyricSync</title>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 
-  <!-- ── sidebar ── -->
-  <div id="sidebar">
+  <div id="app">
 
-    <div id="sidebar-logo">
-      <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
-        <circle cx="12" cy="12" r="10" stroke="#1DB954" stroke-width="1.5"/>
-        <path d="M8 12.5C9.5 11.5 12 11 15 12" stroke="#1DB954" stroke-width="1.5" stroke-linecap="round"/>
-        <path d="M7 9.5C9.5 8 13 7.5 17 9" stroke="#1DB954" stroke-width="1.5" stroke-linecap="round"/>
-        <path d="M9 15.5C10.5 14.8 12.5 14.5 15 15" stroke="#1DB954" stroke-width="1.5" stroke-linecap="round"/>
-      </svg>
-      LyricSync
-    </div>
+    <!-- ── sidebar: navigation + library ── -->
+    <aside id="sidebar">
 
-    <!-- nav links -->
-    <div class="sidebar-section">
-      <div class="sidebar-link active" data-page="now-playing">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"/></svg>
-        Now Playing
-      </div>
-      <div class="sidebar-link coming-soon" data-page="home">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
-        Home
-      </div>
-      <div class="sidebar-link coming-soon" data-page="search">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-        Search
-      </div>
-      <div class="sidebar-link" id="recent-tab" data-page="recent">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-        Recently Translated
-      </div>
-      <div class="sidebar-link coming-soon" data-page="favourites">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
-        Favourites
-      </div>
-    </div>
-
-    <!-- context: previous + next -->
-    <div class="sidebar-queue">
-      <div class="sidebar-queue-header">
-        <span>Queue</span>
-        <div class="queue-dot" id="queue-dot"></div>
-      </div>
-      <div id="queue-list">
-        <div class="queue-empty">Play something on Spotify to see your queue</div>
-      </div>
-    </div>
-
-    <!-- settings button -->
-    <div id="sidebar-settings-btn">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
-      Auto-Translate Lyrics Settings
-    </div>
-
-  </div>
-
-  <!-- ── main ── -->
-  <div id="main">
-
-    <!-- top bar -->
-    <div id="top-bar" style="display:none;">
-      <img id="album-art" src="" alt="Album art">
-      <div id="track-info">
-        <div id="song-name"></div>
-        <div id="artist-name"></div>
-      </div>
-      <div id="lang-badge" style="display:none;"></div>
-      <div id="auto-translate-pill">
-        <span>Auto-Translation</span>
-        <div id="toggle-switch" class="toggle on" onclick="toggleTranslation()">
-          <div class="toggle-thumb"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── WELCOME SCREEN (replaces old state-screen for login + pause>30s) ── -->
-    <div id="welcome-screen">
-      <!-- animated canvas background -->
-      <canvas id="welcome-canvas"></canvas>
-
-      <!-- foreground card -->
-      <div id="welcome-card">
-        <div id="welcome-logo">
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="10" stroke="#1DB954" stroke-width="1.5"/>
-            <path d="M8 12.5C9.5 11.5 12 11 15 12" stroke="#1DB954" stroke-width="1.5" stroke-linecap="round"/>
-            <path d="M7 9.5C9.5 8 13 7.5 17 9" stroke="#1DB954" stroke-width="1.5" stroke-linecap="round"/>
-            <path d="M9 15.5C10.5 14.8 12.5 14.5 15 15" stroke="#1DB954" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-          LyricSync
-        </div>
-
-        <div id="welcome-tagline">Music, understood.</div>
-
-        <p id="welcome-desc">
-          Connect Spotify and LyricSync shows you real-time translated lyrics —
-          line by line, in sync, as you listen. No pausing. No Googling.
-          Just music and meaning, together.
-        </p>
-
-        <!-- login state only -->
-        <a id="welcome-login-btn" href="/login">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.563.387-.857.207-2.35-1.434-5.305-1.76-8.786-.963-.335.077-.67-.133-.746-.47-.077-.334.132-.67.47-.745 3.808-.87 7.076-.496 9.712 1.115.293.18.386.563.207.856zm1.223-2.722c-.226.367-.706.482-1.072.257-2.687-1.652-6.785-2.131-9.965-1.166-.413.127-.848-.106-.973-.517-.125-.413.108-.848.52-.973 3.632-1.102 8.147-.568 11.233 1.328.366.226.48.707.257 1.072zm.105-2.835C14.692 8.95 9.375 8.775 6.297 9.71c-.493.15-1.016-.129-1.166-.623-.148-.495.13-1.017.625-1.166 3.532-1.073 9.404-.866 13.115 1.337.445.264.590.838.327 1.282-.264.443-.838.59-1.284.327z"/>
-          </svg>
-          Connect with Spotify
+      <nav id="nav-card" class="card" aria-label="Main">
+        <a class="nav-link" href="#/home" data-view="home">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3 2 11.5h3V21h5.5v-6h3v6H19v-9.5h3z"/></svg>
+          Home
         </a>
+        <a class="nav-link" href="#/search" data-view="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="7"/><path d="m16 16 5.5 5.5"/></svg>
+          Search
+        </a>
+        <a class="nav-link" href="#/recent" data-view="recent">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.87 15.07l-2.54-2.51.03-.03A17.52 17.52 0 0 0 14.07 6H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.730 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7 1.62-4.330L19.12 17h-3.24z"/></svg>
+          Recently Translated
+        </a>
+        <a class="nav-link" href="#/favourites" data-view="favourites">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54z"/></svg>
+          Favourites
+        </a>
+      </nav>
 
-      </div>
-    </div>
+      <section id="library-card" class="card" aria-labelledby="library-title">
+        <div id="library-header">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 2H8a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm-2 5h-3v5.5a2.5 2.5 0 1 1-2.5-2.5c.57 0 1.08.19 1.5.51V5h4zM4 6H2v14a2 2 0 0 0 2 2h14v-2H4z"/></svg>
+          <h2 id="library-title">Your Library</h2>
+        </div>
+        <div id="library-chips" role="group" aria-label="Filter your library">
+          <button class="chip" type="button" data-kind="playlist" aria-pressed="false">Playlists</button>
+          <button class="chip" type="button" data-kind="show" aria-pressed="false">Podcasts</button>
+          <button class="chip" type="button" data-kind="album" aria-pressed="false">Albums</button>
+        </div>
+        <div id="library-list"></div>
+        <button id="sidebar-settings-btn" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M2.5 12h19M12 2.5c2.6 2.6 3.9 5.8 3.9 9.5s-1.3 6.9-3.9 9.5c-2.6-2.6-3.9-5.8-3.9-9.5s1.3-6.9 3.9-9.5z"/></svg>
+          Auto-Translate Lyrics Settings
+        </button>
+      </section>
 
-    <!-- old state screen (loading, no-lyrics, english, nothing-playing) -->
-    <div id="state-screen" style="display:none;">
-      <div id="state-icon">🎵</div>
-      <div id="state-title"></div>
-      <div id="state-subtitle"></div>
-    </div>
+    </aside>
 
-    <!-- lyrics area -->
-    <div id="lyrics-container" style="display:none;">
-      <div id="lyrics-notes-bg"></div>
-      <div id="lyrics-inner"></div>
-    </div>
+    <!-- ── main card: one view at a time ── -->
+    <main id="main" class="card">
 
-    <!-- bottom bar -->
-    <div id="bottom-bar" style="display:none;">
+      <!-- now playing -->
+      <section id="view-now-playing" class="view">
+        <header id="top-bar" style="display:none;">
+          <img id="album-art" src="" alt="">
+          <div id="track-info">
+            <h1 id="song-name"></h1>
+            <div id="artist-name"></div>
+          </div>
+          <div id="lang-badge" style="display:none;"></div>
+          <div id="auto-translate-pill">
+            <span>Auto-Translation</span>
+            <button id="toggle-switch" class="toggle on" type="button" role="switch" aria-checked="true" aria-label="Auto-Translation" onclick="toggleTranslation()">
+              <span class="toggle-thumb"></span>
+            </button>
+          </div>
+        </header>
+
+        <!-- loading, no lyrics, already English, nothing playing -->
+        <div id="state-screen" style="display:none;">
+          <div id="state-card">
+            <div id="state-title"></div>
+            <div id="state-subtitle"></div>
+          </div>
+          <button id="state-action" type="button" hidden></button>
+        </div>
+
+        <div id="lyrics-container" style="display:none;">
+          <div id="lyrics-inner"></div>
+        </div>
+      </section>
+
+      <!-- recently translated -->
+      <section id="view-recent" class="view page" hidden>
+        <header class="page-header">
+          <div>
+            <h1 class="page-title">Recently Translated</h1>
+            <p class="page-subtitle">Songs you've listened to with auto-translate on</p>
+          </div>
+          <button class="page-settings" type="button" aria-label="Settings" onclick="openSettings()"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.14 12.94a7.07 7.07 0 0 0 0-1.88l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7 7 0 0 0-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.47.41l-.36 2.54a7.3 7.3 0 0 0-1.62.94l-2.39-.96a.48.48 0 0 0-.59.22L2.740 8.87a.47.47 0 0 0 .12.61l2.03 1.58a7.4 7.4 0 0 0 0 1.88l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.04.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54a7.3 7.3 0 0 0 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.47.47 0 0 0-.12-.61zM12 15.6a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2z"/></svg></button>
+        </header>
+        <div id="recent-list"></div>
+      </section>
+
+      <!-- home, search and favourites until they're built -->
+      <section id="view-placeholder" class="view page" hidden>
+        <header class="page-header">
+          <div>
+            <h1 class="page-title" id="placeholder-title"></h1>
+            <p class="page-subtitle">Coming soon — this page is still being built.</p>
+          </div>
+          <button class="page-settings" type="button" aria-label="Settings" onclick="openSettings()"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.14 12.94a7.07 7.07 0 0 0 0-1.88l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7 7 0 0 0-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.47.41l-.36 2.54a7.3 7.3 0 0 0-1.62.94l-2.39-.96a.48.48 0 0 0-.59.22L2.740 8.87a.47.47 0 0 0 .12.61l2.03 1.58a7.4 7.4 0 0 0 0 1.88l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.04.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54a7.3 7.3 0 0 0 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.47.47 0 0 0-.12-.61zM12 15.6a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2z"/></svg></button>
+        </header>
+      </section>
+
+      <!-- queue: slides over the main card from the player's queue button -->
+      <aside id="queue-panel" hidden aria-label="Queue">
+        <div id="queue-header">
+          <h2>Queue</h2>
+          <button id="queue-close" type="button" aria-label="Close queue" onclick="toggleQueue(false)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div id="queue-list">
+          <div class="queue-empty">Play something on Spotify to see your queue</div>
+        </div>
+      </aside>
+
+    </main>
+
+    <!-- ── player ── -->
+    <footer id="bottom-bar" style="display:none;">
       <div id="player-left">
         <img id="bottom-art" src="" alt="">
         <div id="bottom-track">
@@ -142,17 +135,25 @@
           <div id="bottom-artist"></div>
         </div>
       </div>
+
       <div id="player-centre">
         <div id="playback-controls">
-          <button class="ctrl-btn" id="btn-prev" onclick="sendPlayback('previous')" title="Previous">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
+          <button class="ctrl-btn" id="btn-shuffle" type="button" title="Shuffle" aria-pressed="false" onclick="toggleShuffle()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>
           </button>
-          <button class="ctrl-btn play-btn" id="btn-play" onclick="togglePlayPause()" title="Play/Pause">
-            <svg id="play-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-            <svg id="pause-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+          <button class="ctrl-btn ctrl-skip" id="btn-prev" type="button" title="Previous" onclick="sendPlayback('previous')">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 4h2.5v16H5zM20 4v16L8.5 12z"/></svg>
           </button>
-          <button class="ctrl-btn" id="btn-next" onclick="sendPlayback('next')" title="Next">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+          <button class="ctrl-btn play-btn" id="btn-play" type="button" title="Play/Pause" onclick="togglePlayPause()">
+            <svg id="play-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15L19.5 12z"/></svg>
+            <svg id="pause-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none;" aria-hidden="true"><path d="M6 4h4.5v16H6zM13.5 4H18v16h-4.5z"/></svg>
+          </button>
+          <button class="ctrl-btn ctrl-skip" id="btn-next" type="button" title="Next" onclick="sendPlayback('next')">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.5 4H19v16h-2.5zM4 4v16l11.5-8z"/></svg>
+          </button>
+          <button class="ctrl-btn" id="btn-repeat" type="button" title="Repeat" aria-pressed="false" onclick="cycleRepeat()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
+            <span id="repeat-one" hidden>1</span>
           </button>
         </div>
         <div id="progress-wrap">
@@ -166,9 +167,62 @@
           <span id="time-total">0:00</span>
         </div>
       </div>
-      <div id="player-right"></div>
-    </div>
 
+      <div id="player-right">
+        <a class="ctrl-btn" id="btn-lyrics" href="#/now-playing" title="Lyrics">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M14.47 2.6a5 5 0 0 1 6.93 6.93zM13.4 3.66l6.94 6.94-1.9 1.33-6.37-6.37zM10.6 6.6l6.8 6.8-7.9 6.6a2.1 2.1 0 0 1-2.8-.14l-.56-.56-2.6 2.6-1.4-1.4 2.6-2.6-.56-.56a2.1 2.1 0 0 1-.14-2.8z"/></svg>
+        </a>
+        <button class="ctrl-btn" id="btn-queue" type="button" title="Queue" aria-pressed="false" onclick="toggleQueue()">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5h13v2H3zm0 4h13v2H3zm0 4h8v2H3zm14-8v8.2a3 3 0 1 0 2 2.8V7h3V5z"/></svg>
+        </button>
+        <div class="popover-anchor">
+          <button class="ctrl-btn" id="btn-devices" type="button" title="Connect to a device" aria-expanded="false" onclick="toggleDevices()">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm-5 2a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm0 16a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg>
+          </button>
+          <div id="device-menu" class="popover" hidden></div>
+        </div>
+        <div class="popover-anchor">
+          <button class="ctrl-btn" id="btn-volume" type="button" title="Volume" aria-expanded="false" onclick="toggleVolume()">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 9v6h4l5 5V4L7 9zm13.5 3A4.5 4.5 0 0 0 14 7.970v8.05A4.47 4.47 0 0 0 16.5 12zM14 3.23v2.06a7 7 0 0 1 0 13.42v2.06a9 9 0 0 0 0-17.54z"/></svg>
+          </button>
+          <div id="volume-popover" class="popover" hidden>
+            <input id="volume-slider" type="range" min="0" max="100" step="1" value="50" aria-label="Volume">
+          </div>
+        </div>
+        <button class="ctrl-btn" id="btn-fullscreen" type="button" title="Full screen" onclick="toggleFullscreen()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg>
+        </button>
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- ── welcome: signed out, or nothing played yet ── -->
+  <div id="welcome-screen">
+    <canvas id="welcome-canvas"></canvas>
+
+    <div id="welcome-card">
+      <div id="welcome-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3z"/></svg>
+      </div>
+
+      <div id="welcome-title">Welcome to LyricSync</div>
+      <div id="welcome-tagline">Music, understood.</div>
+
+      <p id="welcome-desc">
+        Connect Spotify and LyricSync shows you real-time translated lyrics —
+        line by line, in sync, as you listen. No pausing. No Googling.
+        Just music and meaning, together.
+      </p>
+
+      <a id="welcome-login-btn" href="/login">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.563.387-.857.207-2.35-1.434-5.305-1.76-8.786-.963-.335.077-.67-.133-.746-.47-.077-.334.132-.67.47-.745 3.808-.87 7.076-.496 9.712 1.115.293.18.386.563.207.856zm1.223-2.722c-.226.367-.706.482-1.072.257-2.687-1.652-6.785-2.131-9.965-1.166-.413.127-.848-.106-.973-.517-.125-.413.108-.848.52-.973 3.632-1.102 8.147-.568 11.233 1.328.366.226.48.707.257 1.072zm.105-2.835C14.692 8.950 9.375 8.775 6.297 9.71c-.493.15-1.016-.129-1.166-.623-.148-.495.13-1.017.625-1.166 3.532-1.073 9.404-.866 13.115 1.337.445.264.590.838.327 1.282-.264.443-.838.59-1.284.327z"/>
+        </svg>
+        Connect with Spotify
+      </a>
+      <div id="welcome-note">Your Spotify password is never shared with us</div>
+    </div>
   </div>
 
   <!-- settings modal -->
@@ -177,29 +231,27 @@
 
       <div id="settings-header">
         <div id="settings-title">Settings</div>
-        <button id="settings-close" onclick="closeSettings()">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        <button id="settings-close" type="button" aria-label="Close settings" onclick="closeSettings()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
         </button>
       </div>
 
-      <!-- account section -->
       <div class="settings-section">
         <div class="settings-section-label">Spotify Account</div>
         <div id="settings-account-row">
           <div id="settings-account-avatar">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.563.387-.857.207-2.35-1.434-5.305-1.76-8.786-.963-.335.077-.67-.133-.746-.47-.077-.334.132-.67.47-.745 3.808-.87 7.076-.496 9.712 1.115.293.18.386.563.207.856zm1.223-2.722c-.226.367-.706.482-1.072.257-2.687-1.652-6.785-2.131-9.965-1.166-.413.127-.848-.106-.973-.517-.125-.413.108-.848.52-.973 3.632-1.102 8.147-.568 11.233 1.328.366.226.48.707.257 1.072zm.105-2.835C14.692 8.95 9.375 8.775 6.297 9.71c-.493.15-1.016-.129-1.166-.623-.148-.495.13-1.017.625-1.166 3.532-1.073 9.404-.866 13.115 1.337.445.264.590.838.327 1.282-.264.443-.838.59-1.284.327z"/></svg>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zm0 2.25c-3 0-9 1.5-9 4.5V21h18v-2.25c0-3-6-4.5-9-4.5z"/></svg>
           </div>
           <div id="settings-account-info">
             <div id="settings-account-name">Loading...</div>
             <div id="settings-account-email"></div>
           </div>
-          <button id="settings-disconnect-btn" onclick="disconnectSpotify()">
+          <button id="settings-disconnect-btn" type="button" onclick="disconnectSpotify()">
             Disconnect
           </button>
         </div>
       </div>
 
-      <!-- translation language section -->
       <div class="settings-section">
         <div class="settings-section-label">Translation Language</div>
         <div id="settings-lang-row">
@@ -209,34 +261,9 @@
           </div>
           <div id="settings-lang-badge">EN</div>
         </div>
-        <div id="settings-lang-coming-soon">
-          <span>🌍</span> More languages coming soon
-        </div>
+        <div id="settings-lang-coming-soon">More languages coming soon</div>
       </div>
 
-    </div>
-  </div>
-
-  <!-- coming soon modal -->
-  <div id="coming-soon-modal" style="display:none;">
-    <div id="coming-soon-card">
-      <div id="coming-soon-icon">🚧</div>
-      <div id="coming-soon-title">Coming Soon!</div>
-      <div id="coming-soon-sub">This page is under construction...</div>
-      <button onclick="closeModal()">Got it</button>
-    </div>
-  </div>
-
-  <!-- recently played -->
-  <div id="recent-modal" style="display:none;">
-    <div id="recent-card">
-      <div id="recent-header">
-        <div id="recent-title">Recently Translated</div>
-        <button id="recent-close" onclick="closeRecent()" aria-label="Close">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-      <div id="recent-list"></div>
     </div>
   </div>
 

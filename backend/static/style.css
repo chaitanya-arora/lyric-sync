@@ -542,6 +542,13 @@ body {
 .lyric-line.near .lyric-original { opacity: 0.45; font-size: 14px; }
 .lyric-line.near .lyric-translation { opacity: 0.5; }
 
+/* already-English line: the original says it all */
+.lyric-translation.untranslated { display: none; }
+
+/* plain lyrics with no timestamps — nothing to follow, so keep it all readable */
+#lyrics-inner.unsynced .lyric-original { opacity: 0.85; }
+#lyrics-inner.unsynced .lyric-translation { opacity: 0.8; }
+
 /* ── bottom player bar ── */
 #bottom-bar {
   border-top: 0.5px solid #1e1e1e;

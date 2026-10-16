@@ -3,6 +3,7 @@ let currentTrackId = null
 let currentTrackData = null   // display data for currentTrackId, kept in step with it
 let localRecent = []          // tracks we saw finish, newest first
 let currentLyrics = []
+let currentLyricsSynced = false   // false for plain lyrics with no timestamps
 let currentLineIndex = -1
 let progressMs = 0
 let durationMs = 0
@@ -279,8 +280,48 @@ function getCurrentLineIndex(lyrics, ms) {
   return idx
 }
 
+// LRCLIB only has plain lyrics for some songs. Their time_ms is null, which
+// compares as 0, so every line would count as already sung and the highlight
+// would sit on the last one. Those songs get a static, fully readable view.
+function hasTimings(lyrics) {
+  return lyrics.length > 0 && lyrics.every(line => line.time_ms != null)
+}
+
+function syncActiveLine(ms) {
+  if (!currentLyricsSynced || currentLyrics.length === 0) return
+  updateActiveLine(getCurrentLineIndex(currentLyrics, ms + SYNC_OFFSET_BASE + dynamicOffset))
+}
+
+function normaliseLyric(text) {
+  return text.toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+// A line DeepL left alone was already in English — there's nothing to show
+// underneath it, but the line itself still belongs in the song.
+function needsTranslation(line) {
+  if (line.detected_language === 'EN') return false
+  return normaliseLyric(line.original) !== normaliseLyric(line.translation)
+}
+
+// The badge names the language the song is mostly in. Reading line 0 alone
+// got it wrong whenever a song opened with an English line.
+function dominantLanguage(lyrics) {
+  const counts = {}
+  lyrics.forEach(line => {
+    if (line.needsTranslation && line.detected_language) {
+      counts[line.detected_language] = (counts[line.detected_language] || 0) + 1
+    }
+  })
+  let best = ''
+  for (const lang in counts) {
+    if (!best || counts[lang] > counts[best]) best = lang
+  }
+  return best
+}
+
 function renderLyrics(lyrics) {
   lyricsInner.innerHTML = ''
+  lyricsInner.classList.toggle('unsynced', !currentLyricsSynced)
   lyrics.forEach((line, index) => {
     const div = document.createElement('div')
     div.className = 'lyric-line'
@@ -292,6 +333,7 @@ function renderLyrics(lyrics) {
 
     const translation = document.createElement('div')
     translation.className = 'lyric-translation'
+    if (!line.needsTranslation) translation.classList.add('untranslated')
     translation.textContent = line.translation
 
     div.appendChild(original)
@@ -451,9 +493,7 @@ function previewSeek(ms) {
   paintProgress(ms)
   timeCurrent.textContent = formatTime(ms)
   lastDisplayedSecond = Math.floor(ms / 1000)
-  if (currentLyrics.length > 0) {
-    updateActiveLine(getCurrentLineIndex(currentLyrics, ms + SYNC_OFFSET_BASE + dynamicOffset))
-  }
+  syncActiveLine(ms)
 }
 
 async function commitSeek(ms) {
@@ -810,6 +850,7 @@ async function disconnectSpotify() {
   currentTrackData = null
   localRecent = []
   currentLyrics = []
+  currentLyricsSynced = false
   currentLineIndex = -1
   lastKnownData = null
   isPlaying = false
@@ -955,9 +996,7 @@ async function fetchNowPlaying() {
           lyricsContainer.style.display = 'flex'
           stateScreen.style.display = 'none'
           // re-sync to current position
-          if (currentLyrics.length > 0) {
-            updateActiveLine(getCurrentLineIndex(currentLyrics, progressMs + SYNC_OFFSET_BASE + dynamicOffset))
-          }
+          syncActiveLine(progressMs)
         } else if (currentContentState) {
           // loading / no-lyrics / english — stateScreen was showing
           stateScreen.style.display = 'flex'
@@ -968,9 +1007,7 @@ async function fetchNowPlaying() {
 
     // same track — just sync line
     if (data.track_id === currentTrackId) {
-      if (currentLyrics.length > 0) {
-        updateActiveLine(getCurrentLineIndex(currentLyrics, progressMs + SYNC_OFFSET_BASE + dynamicOffset))
-      }
+      syncActiveLine(progressMs)
       return
     }
 
@@ -984,6 +1021,7 @@ async function fetchNowPlaying() {
     currentTrackId = data.track_id
     currentTrackData = data
     currentLyrics = []
+    currentLyricsSynced = false
     currentLineIndex = -1
     currentContentState = 'loading'
     langBadge.style.display = 'none'
@@ -1031,11 +1069,16 @@ async function fetchNowPlaying() {
       return
     }
 
-    currentLyrics = translateData.lyrics.filter(line =>
-      line.original.toLowerCase().trim() !== line.translation.toLowerCase().trim()
-    )
+    // Keep every line: Punjabi and Hindi songs often switch into English for a
+    // hook, and dropping those lines left holes in the song.
+    currentLyrics = translateData.lyrics.map(line => ({
+      ...line,
+      needsTranslation: needsTranslation(line)
+    }))
+    currentLyricsSynced = hasTimings(currentLyrics)
 
-    if (currentLyrics.length === 0) {
+    if (!currentLyrics.some(line => line.needsTranslation)) {
+      currentLyrics = []
       currentContentState = 'english'
       showContent('message', {
         icon: '💬',
@@ -1045,7 +1088,7 @@ async function fetchNowPlaying() {
       return
     }
 
-    const lang = translateData.lyrics[0]?.detected_language || ''
+    const lang = dominantLanguage(currentLyrics)
     if (lang) {
       langBadge.textContent = `${lang} → ENG`
       langBadge.style.display = 'block'
@@ -1056,9 +1099,7 @@ async function fetchNowPlaying() {
     currentContentState = 'lyrics'
     showContent('lyrics')
 
-    if (currentLyrics.length > 0) {
-      updateActiveLine(getCurrentLineIndex(currentLyrics, progressMs + SYNC_OFFSET_BASE + dynamicOffset))
-    }
+    syncActiveLine(progressMs)
 
   } catch (err) {
     console.error('Fetch error:', err)
@@ -1090,9 +1131,7 @@ function tickProgress() {
     timeCurrent.textContent = formatTime(capped)
   }
 
-  if (currentLyrics.length > 0) {
-    updateActiveLine(getCurrentLineIndex(currentLyrics, capped + SYNC_OFFSET_BASE + dynamicOffset))
-  }
+  syncActiveLine(capped)
 }
 
 // ─────────────────────────────────────────

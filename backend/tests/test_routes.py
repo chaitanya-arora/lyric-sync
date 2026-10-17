@@ -815,3 +815,31 @@ def test_romanised_hindi_into_hindi_is_left_to_deepl(translate):
         {'text': 'x', 'detected_source_language': 'HI'}] * len(lines)})
     client.get(TRANSLATE_URL + '&target_lang=HI')
     assert 'source_lang' not in stub['deepl_bodies'][0]
+
+
+# --- playing Favourites ---
+
+def test_play_tracks_starts_from_the_chosen_song(client, spotify, monkeypatch):
+    bodies = []
+    monkeypatch.setattr(spotify, 'spotify_put',
+                        lambda u, **kw: bodies.append(kw.get('json')) or FakeResponse(204))
+    client.post('/playback', json={'action': 'play_tracks',
+                                   'track_ids': ['A1', 'B2', 'C3'], 'offset': 1})
+    assert bodies == [{'uris': ['spotify:track:A1', 'spotify:track:B2', 'spotify:track:C3'],
+                       'offset': {'position': 1}}]
+
+
+@pytest.mark.parametrize('body', [
+    {'track_ids': []},
+    {'track_ids': 'A1'},
+    {'track_ids': ['A1', '../me']},
+    {'track_ids': ['A1'] * 101},
+    {'track_ids': ['A1', 'B2'], 'offset': 2},
+    {'track_ids': ['A1', 'B2'], 'offset': -1},
+    {'track_ids': ['A1', 'B2'], 'offset': True},
+])
+def test_play_tracks_rejects_bad_lists(playback, body):
+    client, calls = playback
+    resp = client.post('/playback', json={'action': 'play_tracks', **body})
+    assert resp.status_code == 400
+    assert calls == []

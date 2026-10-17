@@ -444,6 +444,7 @@ function updatePlayPauseIcon(playing) {
 }
 
 function updateTopBar(data) {
+  paintFavouriteButton(data.track_id)
   songName.textContent = data.song
   artistName.textContent = data.artist
   if (data.album_art && albumArt.getAttribute('src') !== data.album_art) {
@@ -928,12 +929,190 @@ async function playContext(item) {
 }
 
 // ─────────────────────────────────────────
+//  FAVOURITES
+// ─────────────────────────────────────────
+
+let favourites = []           // newest first, as the server sends them
+const favList = document.getElementById('fav-list')
+const favButton = document.getElementById('fav-btn')
+
+function isFavourite(trackId) {
+  return favourites.some(track => track.track_id === trackId)
+}
+
+function paintFavouriteButton(trackId) {
+  const saved = isFavourite(trackId)
+  favButton.setAttribute('aria-pressed', String(saved))
+  const label = saved ? 'Remove from Favourites' : 'Save to Favourites'
+  favButton.setAttribute('aria-label', label)
+  favButton.title = label
+}
+
+async function loadFavourites() {
+  try {
+    const res = await fetch('/favourites')
+    if (!res.ok) return
+    favourites = (await res.json()).tracks || []
+    paintFavouriteButton(playerTrackId())
+    renderFavourites()
+  } catch (e) {
+    console.warn('Favourites error:', e)
+  }
+}
+
+async function toggleFavourite() {
+  const track = lastKnownData
+  if (!track || !track.track_id) return
+  const saving = !isFavourite(track.track_id)
+  const before = favourites
+
+  // show it straight away; put it back if the server says no
+  if (saving) {
+    favourites = [{
+      track_id: track.track_id, song: track.song, artist: track.artist,
+      album: track.album, album_art: track.album_art, duration_ms: track.duration_ms,
+      source_lang: track.track_id === currentTrackId ? dominantLanguage(currentLyrics) || null : null
+    }, ...favourites]
+  } else {
+    favourites = favourites.filter(t => t.track_id !== track.track_id)
+  }
+  paintFavouriteButton(track.track_id)
+  renderFavourites()
+
+  try {
+    const url = `/favourites/${encodeURIComponent(track.track_id)}`
+    const res = saving
+      ? await fetch(url, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(favourites[0])
+        })
+      : await fetch(url, { method: 'DELETE' })
+    if (!res.ok) throw new Error(`favourites: ${res.status}`)
+    showToast(saving ? 'Saved to Favourites' : 'Removed from Favourites', 2500)
+  } catch (e) {
+    favourites = before
+    paintFavouriteButton(track.track_id)
+    renderFavourites()
+    showToast("Couldn't update Favourites — try again in a moment.")
+  }
+}
+
+async function removeFavourite(track) {
+  const before = favourites
+  favourites = favourites.filter(t => t.track_id !== track.track_id)
+  paintFavouriteButton(playerTrackId())
+  renderFavourites()
+  try {
+    const res = await fetch(`/favourites/${encodeURIComponent(track.track_id)}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error(`favourites: ${res.status}`)
+  } catch (e) {
+    favourites = before
+    paintFavouriteButton(playerTrackId())
+    renderFavourites()
+    showToast("Couldn't remove that — try again in a moment.")
+  }
+}
+
+// Play the list from one song on, so it carries on through the rest.
+async function playFavourites(index) {
+  try {
+    const result = await postPlayback({
+      action: 'play_tracks',
+      track_ids: favourites.slice(0, 100).map(t => t.track_id),
+      offset: Math.min(index, 99)
+    })
+    if (!result.ok) {
+      reportPlaybackProblem(result)
+      return
+    }
+    setTimeout(fetchNowPlaying, 500)
+  } catch (e) {
+    showToast(UNREACHABLE)
+  }
+}
+
+const HEART_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-9.2-9.4C1.6 7.6 3.9 4 7.5 4c1.9 0 3.4 1 4.5 2.5C13.1 5 14.6 4 16.5 4c3.6 0 5.9 3.6 4.7 7.1-1.7 4.8-9.2 9.4-9.2 9.4z"/></svg>'
+
+function renderFavourites() {
+  const count = favourites.length
+  document.getElementById('fav-count').textContent =
+    count === 1 ? '1 song' : `${count} songs`
+  document.getElementById('fav-play-all').hidden = count === 0
+  document.getElementById('fav-table').classList.toggle('empty', count === 0)
+
+  favList.innerHTML = ''
+  if (!count) {
+    const empty = document.createElement('div')
+    empty.className = 'grid-empty'
+    empty.innerHTML = '<p class="grid-empty-title">No favourites yet.</p>' +
+      '<p class="grid-empty-sub">Tap the heart next to a song that\'s playing to save it here.</p>'
+    favList.appendChild(empty)
+    return
+  }
+
+  favourites.forEach((track, index) => {
+    // names come from Spotify — textContent only
+    const row = document.createElement('div')
+    row.className = 'fav-row'
+    row.setAttribute('role', 'row')
+    if (track.track_id === playerTrackId()) row.classList.add('playing')
+
+    const number = document.createElement('span')
+    number.className = 'fav-num'
+    number.textContent = index + 1
+
+    const title = document.createElement('button')
+    title.type = 'button'
+    title.className = 'fav-title'
+    title.title = `Play ${track.song}`
+    const art = document.createElement('img')
+    art.alt = ''
+    art.loading = 'lazy'
+    if (track.album_art) art.src = track.album_art
+    const text = document.createElement('span')
+    const song = document.createElement('span')
+    song.className = 'fav-song'
+    song.textContent = track.song
+    const artist = document.createElement('span')
+    artist.className = 'fav-artist'
+    artist.textContent = track.artist
+    text.append(song, artist)
+    title.append(art, text)
+    title.addEventListener('click', () => playFavourites(index))
+
+    const album = document.createElement('span')
+    album.className = 'fav-album'
+    album.textContent = track.album || ''
+
+    const lang = document.createElement('span')
+    lang.className = 'fav-lang'
+    if (track.source_lang) lang.appendChild(langPill(track.source_lang, targetLang))
+
+    const time = document.createElement('span')
+    time.className = 'fav-time'
+    time.textContent = track.duration_ms ? formatTime(track.duration_ms) : ''
+
+    const remove = document.createElement('button')
+    remove.type = 'button'
+    remove.className = 'fav-remove'
+    remove.title = 'Remove from Favourites'
+    remove.setAttribute('aria-label', `Remove ${track.song} from Favourites`)
+    remove.innerHTML = HEART_ICON
+    remove.addEventListener('click', () => removeFavourite(track))
+
+    row.append(number, title, album, lang, time, remove)
+    favList.appendChild(row)
+  })
+}
+
+// ─────────────────────────────────────────
 //  PAGES
 // ─────────────────────────────────────────
 
 // Hash routes, so the back button and a refresh keep you on the same page.
-const PLACEHOLDER_TITLES = { home: 'Home', search: 'Search', favourites: 'Favourites' }
-const VIEWS = ['now-playing', 'recent', 'settings', ...Object.keys(PLACEHOLDER_TITLES)]
+const PLACEHOLDER_TITLES = { home: 'Home', search: 'Search' }
+const VIEWS = ['now-playing', 'recent', 'settings', 'favourites', ...Object.keys(PLACEHOLDER_TITLES)]
 
 function currentView() {
   const name = location.hash.replace(/^#\/?/, '')
@@ -945,6 +1124,7 @@ function route() {
   document.getElementById('view-now-playing').hidden = view !== 'now-playing'
   document.getElementById('view-recent').hidden = view !== 'recent'
   document.getElementById('view-settings').hidden = view !== 'settings'
+  document.getElementById('view-favourites').hidden = view !== 'favourites'
 
   const placeholder = PLACEHOLDER_TITLES[view]
   document.getElementById('view-placeholder').hidden = !placeholder
@@ -960,6 +1140,7 @@ function route() {
 
   if (view === 'recent') loadRecent()
   if (view === 'settings') loadSettings()
+  if (view === 'favourites') loadFavourites()
   if (view === 'now-playing') recentreLyrics()
 }
 
@@ -1543,6 +1724,7 @@ function signedOut() {
   accessProblem = null
   libraryItems = []
   libraryList.innerHTML = ''
+  favourites = []
   currentTrackId = null
   currentTrackData = null
   localRecent = []
@@ -1698,6 +1880,7 @@ async function fetchNowPlaying() {
       accessProblem = null
       isLoggedIn = true
       loadPrefs()
+      loadFavourites()
       loadLibrary()
       showBars()
       fetchContext()

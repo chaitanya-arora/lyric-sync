@@ -11,7 +11,7 @@
 
 /* the bubble: declared on each surface so it picks up that surface's
    --lang-color rather than :root's */
-.lang-tile, .song-card-art, #chart-cover, #explore-country {
+.lang-tile, .song-card-art, #explore-country {
   --bubble: radial-gradient(ellipse 60% 68% at 50% 50%,
     var(--lang-color) 0%, var(--lang-color) 25%,
     color-mix(in srgb, var(--lang-color) 55%, white) 100%);
@@ -1215,26 +1215,87 @@ body {
 
 #search-results { margin-bottom: 30px; }
 
-/* ── chart page ── */
+/* ── chart page: a photo of the place, washed in the language's colour ── */
 #chart-hero {
   --lang-color: #1ed760;
   --lang-ink: #0b0c0f;
+  --bubble: radial-gradient(ellipse 60% 68% at 50% 50%,
+    var(--lang-color) 0%, var(--lang-color) 25%,
+    color-mix(in srgb, var(--lang-color) 55%, white) 100%);
+  position: relative;
   display: flex;
   align-items: flex-end;
-  gap: clamp(18px, 2.4vw, 30px);
-  margin-bottom: 26px;
+  min-height: clamp(220px, 34vh, 340px);
+  margin-bottom: 22px;
+  padding: clamp(20px, 2.6vw, 34px);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--bubble);
+  color: #fff;
 }
 
-#chart-cover {
-  width: clamp(110px, 12vw, 168px);
-  aspect-ratio: 1;
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  border-radius: var(--radius-lg);
-  font-size: clamp(48px, 5vw, 72px);
-  background: var(--bubble);
+#chart-photo {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 35%;   /* landmarks rise; keep their tops in */
+  animation: photoIn 0.6s var(--ease);
 }
+
+@keyframes photoIn {
+  from { opacity: 0; transform: scale(1.03); }
+  to { opacity: 1; transform: none; }
+}
+
+/* dark at the foot for the title, the language's colour rising from the corner */
+#chart-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(90% 120% at 0% 100%, color-mix(in srgb, var(--lang-color) 70%, transparent), transparent 62%),
+    linear-gradient(to top, rgba(11, 12, 15, 0.82), rgba(11, 12, 15, 0.1) 62%, transparent);
+}
+
+#chart-hero-text { text-shadow: 0 2px 18px rgba(0, 0, 0, 0.35); }
+#chart-hero .eyebrow { color: rgba(255, 255, 255, 0.85); }
+#chart-hero .page-title { font-size: clamp(34px, 4.4vw, 60px); line-height: 1.05; }
+#chart-hero .page-subtitle { color: rgba(255, 255, 255, 0.88); }
+
+#chart-native {
+  font-family: var(--font-sans);
+  font-size: 0.42em;
+  font-weight: 600;
+  vertical-align: middle;
+  margin-left: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--lang-color);
+  color: var(--lang-ink);
+  text-shadow: none;
+}
+
+#chart-native:empty { display: none; }
+
+#chart-credit {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  max-width: 50%;
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.55);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#chart-credit:hover { color: #fff; text-decoration: underline; }
 
 /* ── explore ── */
 #view-explore { position: relative; }
@@ -2274,7 +2335,6 @@ body {
 }
 
 
-#chart-flag .flag-icon { width: 46%; height: auto; aspect-ratio: 4 / 3; border-radius: 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25); }
 
 /* artwork fallback and queue history marker, drawn rather than typed */
 .song-card-art.no-art svg { width: 38%; height: 38%; color: #fff; }

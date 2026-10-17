@@ -1551,12 +1551,34 @@ function languageTile(spec) {
 }
 
 // ── chart page ──
+// Each place has a photo (PLACE_PHOTOS, in places.js, from Wikimedia
+// Commons and credited as its licence asks). Without one, the hero is the
+// language's colour on its own.
+function paintPlacePhoto(country, name) {
+  const photo = document.getElementById('chart-photo')
+  const credit = document.getElementById('chart-credit')
+  const place = (window.PLACE_PHOTOS || {})[country]
+  photo.hidden = !place
+  credit.hidden = !place
+  if (!place) {
+    photo.removeAttribute('src')
+    return
+  }
+  photo.onerror = () => { photo.hidden = true; credit.hidden = true }
+  photo.alt = `${place.caption}, ${name}`
+  photo.src = place.src
+  credit.href = place.page
+  credit.textContent = `Photo: ${place.credit} · ${place.license}`
+}
+
 async function loadChartPage(country) {
   const [name, lang] = COUNTRIES[country]
   const tile = LANGUAGE_TILES.find(t => t.country === country)
   paintTile(document.getElementById('chart-hero'), tile || { lang })
-  setFlag('chart-flag', country)
+  paintPlacePhoto(country, name)
   document.getElementById('chart-title').textContent = tile ? tile.title : name
+  document.getElementById('chart-native').textContent = tile ? tile.native : ''
+  document.getElementById('chart-native').lang = lang.toLowerCase()
   document.getElementById('chart-subtitle').textContent = `The most played songs in ${name} today`
   renderChartInto(document.getElementById('chart-list'), country, 25)
 }

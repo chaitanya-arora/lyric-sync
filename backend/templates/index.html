@@ -219,13 +219,15 @@
 
       <!-- one country's chart, from a language tile or Explore -->
       <section id="view-chart" class="view page" hidden>
+        <!-- a photo of the place, washed in its language's colour -->
         <header id="chart-hero">
-          <div id="chart-cover" aria-hidden="true"><span id="chart-flag"></span></div>
-          <div>
+          <img id="chart-photo" alt="" hidden>
+          <div id="chart-hero-text">
             <div class="eyebrow">Most played right now</div>
-            <h1 class="page-title" id="chart-title"></h1>
+            <h1 class="page-title"><span id="chart-title"></span> <span id="chart-native"></span></h1>
             <p class="page-subtitle" id="chart-subtitle"></p>
           </div>
+          <a id="chart-credit" target="_blank" rel="noopener" hidden></a>
         </header>
         <div id="chart-list" class="song-list"></div>
       </section>
@@ -507,6 +509,7 @@
   <!-- transient playback notice (e.g. no active Spotify device) -->
   <div id="toast" role="status" aria-live="polite"></div>
 
+  <script src="/static/places.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

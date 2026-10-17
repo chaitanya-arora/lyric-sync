@@ -1511,6 +1511,24 @@ function sizeGlobe() {
 
 window.addEventListener('resize', sizeGlobe)
 
+const PIN_ICON = '<svg viewBox="0 0 24 30" aria-hidden="true"><path d="M12 1C6.2 1 1.5 5.6 1.5 11.3 1.5 19 12 29 12 29s10.5-10 10.5-17.7C22.5 5.6 17.8 1 12 1z"/><circle cx="12" cy="11.3" r="3.6"/></svg>'
+const pinsByCode = {}
+
+// A flat map pin in the country's language colour, tip on the country.
+function pinElement(d) {
+  const pin = document.createElement('button')
+  pin.type = 'button'
+  pin.className = 'globe-pin'
+  pin.style.setProperty('--lang-h', langHue(d.lang))
+  pin.title = `${flag(d.code)} ${d.name}`
+  pin.setAttribute('aria-label', `Explore ${d.name}`)
+  pin.innerHTML = PIN_ICON
+  pin.style.pointerEvents = 'auto'   // the globe's overlay ignores the pointer otherwise
+  pin.addEventListener('click', () => flyTo(d.code))
+  pinsByCode[d.code] = pin
+  return pin
+}
+
 async function openExplore() {
   if (globe) {
     sizeGlobe()
@@ -1522,8 +1540,8 @@ async function openExplore() {
     showToast("Couldn't load the globe — check your connection.")
     return
   }
-  const points = Object.entries(COUNTRIES).map(([code, [name, lang, lat, lng]]) =>
-    ({ code, name, lat, lng, color: `hsl(${langHue(lang)}, 75%, 65%)` }))   // three.js wants the comma form
+  const pins = Object.entries(COUNTRIES).map(([code, [name, lang, lat, lng]]) =>
+    ({ code, name, lang, lat, lng }))
 
   globe = Globe()(document.getElementById('globe'))
     .backgroundColor('rgba(0,0,0,0)')
@@ -1531,24 +1549,72 @@ async function openExplore() {
     .showAtmosphere(true)
     .atmosphereColor('#1db954')
     .atmosphereAltitude(0.18)
-    .pointsData(points)
-    .pointColor('color')
-    .pointAltitude(d => d.code === exploreCountry ? 0.14 : 0.04)
-    .pointRadius(d => d.code === exploreCountry ? 1.1 : 0.75)
-    .pointLabel(d => `${flag(d.code)} ${d.name}`)
-    .onPointClick(d => selectCountry(d.code))
+    .htmlElementsData(pins)
+    .htmlLat('lat')
+    .htmlLng('lng')
+    .htmlAltitude(0.005)
+    .htmlElement(pinElement)
   globe.controls().autoRotate = true
   globe.controls().autoRotateSpeed = 0.5
   globe.pointOfView({ lat: 20, lng: 60, altitude: 2.3 })
   sizeGlobe()
 }
 
-function selectCountry(code) {
-  exploreCountry = code
-  const [name, lang, lat, lng] = COUNTRIES[code]
+const LANDED_ALTITUDE = 1.7
+let spinning = false
+
+// Clicking a pin: glide over to it.
+function flyTo(code) {
+  if (spinning) return
+  const [, , lat, lng] = COUNTRIES[code]
   globe.controls().autoRotate = false
-  globe.pointOfView({ lat, lng, altitude: 1.7 }, 1600)
-  globe.pointsData(globe.pointsData())   // redraw so the chosen one stands up
+  globe.pointOfView({ lat, lng, altitude: LANDED_ALTITUDE }, 1400)
+  showCountry(code)
+}
+
+// The spin: a few full turns, fast and then slowing, settling on the
+// country. Its songs appear once it has landed.
+function spinTo(code) {
+  const [, , lat, lng] = COUNTRIES[code]
+  const start = globe.pointOfView()
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
+  const turns = reduceMotion ? 0 : 3
+  // always travel eastward, through whole turns, ending on the country
+  const delta = (((lng - start.lng) % 360) + 360) % 360 + 360 * turns
+  const duration = reduceMotion ? 600 : 3600
+  const began = performance.now()
+
+  spinning = true
+  globe.controls().autoRotate = false
+  document.getElementById('spin-btn').disabled = true
+  for (const pin of Object.values(pinsByCode)) pin.classList.remove('selected')
+
+  function frame(now) {
+    const t = Math.min((now - began) / duration, 1)
+    const eased = 1 - Math.pow(1 - t, 4)   // quick off the mark, a long slow settle
+    globe.pointOfView({
+      lat: start.lat + (lat - start.lat) * eased,
+      lng: start.lng + delta * eased,
+      altitude: start.altitude + (LANDED_ALTITUDE - start.altitude) * eased
+    }, 0)
+    if (t < 1) {
+      requestAnimationFrame(frame)
+      return
+    }
+    spinning = false
+    document.getElementById('spin-btn').disabled = false
+    // a last short glide puts it exactly on the country, whatever the
+    // turns accumulated along the way
+    globe.pointOfView({ lat, lng, altitude: LANDED_ALTITUDE }, 400)
+    showCountry(code)
+  }
+  requestAnimationFrame(frame)
+}
+
+function showCountry(code) {
+  exploreCountry = code
+  const [name, lang] = COUNTRIES[code]
+  for (const [c, pin] of Object.entries(pinsByCode)) pin.classList.toggle('selected', c === code)
 
   document.getElementById('explore-intro').classList.add('docked')
   document.getElementById('view-explore').classList.add('has-panel')
@@ -1563,16 +1629,9 @@ function selectCountry(code) {
 }
 
 document.getElementById('spin-btn').addEventListener('click', () => {
-  if (!globe) return
+  if (!globe || spinning) return
   const codes = Object.keys(COUNTRIES).filter(c => c !== exploreCountry)
-  const pick = codes[Math.floor(Math.random() * codes.length)]
-  // a quick spin first, so it feels like the globe chose
-  globe.controls().autoRotate = true
-  globe.controls().autoRotateSpeed = 30
-  setTimeout(() => {
-    globe.controls().autoRotateSpeed = 0.5
-    selectCountry(pick)
-  }, 900)
+  spinTo(codes[Math.floor(Math.random() * codes.length)])
 })
 
 // ─────────────────────────────────────────

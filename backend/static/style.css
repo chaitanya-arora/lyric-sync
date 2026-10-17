@@ -679,9 +679,7 @@ body {
   place-items: center;
   font-size: 44px;
   color: oklch(0.86 0.1 var(--lang-h));
-  background:
-    radial-gradient(80% 80% at 30% 20%, oklch(0.7 0.12 var(--lang-h) / 0.45), transparent),
-    var(--ink-3);
+  background: oklch(0.4 0.09 var(--lang-h));
 }
 
 .song-card-play {
@@ -967,7 +965,7 @@ body {
   text-overflow: ellipsis;
 }
 
-/* language tiles: a gradient in the language's colour */
+/* language tiles: a flat block of the language's colour */
 .tile-row {
   display: grid;
   grid-auto-flow: column;
@@ -997,16 +995,13 @@ body {
   border-radius: var(--radius-lg);
   text-decoration: none;
   overflow: hidden;
-  background:
-    radial-gradient(120% 100% at 100% 100%, oklch(0.62 0.15 var(--lang-h) / 0.9), transparent 70%),
-    linear-gradient(135deg, oklch(0.42 0.1 var(--lang-h)), oklch(0.3 0.07 var(--lang-h)));
-  border: 1px solid oklch(0.8 0.1 var(--lang-h) / 0.18);
+  background: oklch(0.48 0.11 var(--lang-h));
   transition: transform 0.25s var(--ease), box-shadow 0.25s;
 }
 
 .lang-tile:hover {
   transform: translateY(-2px);
-  box-shadow: 0 14px 30px oklch(0.5 0.12 var(--lang-h) / 0.35);
+  background: oklch(0.53 0.12 var(--lang-h));
 }
 
 .lang-tile-title {
@@ -1180,10 +1175,7 @@ body {
   place-items: center;
   border-radius: var(--radius-lg);
   font-size: clamp(48px, 5vw, 72px);
-  background:
-    radial-gradient(120% 100% at 100% 100%, oklch(0.62 0.15 var(--lang-h) / 0.9), transparent 70%),
-    linear-gradient(135deg, oklch(0.42 0.1 var(--lang-h)), oklch(0.3 0.07 var(--lang-h)));
-  box-shadow: 0 18px 40px oklch(0.5 0.12 var(--lang-h) / 0.3);
+  background: oklch(0.48 0.11 var(--lang-h));
 }
 
 /* ── explore ── */
@@ -1195,6 +1187,40 @@ body {
   cursor: grab;
   transition: right 0.4s var(--ease);
 }
+
+/* flat map pins, tip on the country, in its language's colour */
+.globe-pin {
+  --lang-h: 160;
+  position: relative;
+  width: 0;
+  height: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.globe-pin svg {
+  position: absolute;
+  left: -8px;
+  bottom: 0;
+  width: 16px;
+  height: 20px;
+  fill: oklch(0.78 0.13 var(--lang-h));
+  transform-origin: 50% 100%;
+  transition: transform 0.25s var(--ease), fill 0.2s;
+}
+
+.globe-pin svg circle { fill: var(--ink-0); }
+.globe-pin:hover svg { transform: scale(1.3); }
+
+.globe-pin.selected svg {
+  transform: scale(1.8);
+  fill: oklch(0.85 0.14 var(--lang-h));
+  filter: drop-shadow(0 0 6px oklch(0.8 0.14 var(--lang-h) / 0.8));
+}
+
+#spin-btn:disabled { opacity: 0.6; cursor: default; transform: none; }
 
 /* with a country open, the globe makes room for its songs */
 #view-explore.has-panel #globe { right: min(392px, 45%); }
@@ -1243,7 +1269,7 @@ body {
   align-items: center;
   gap: 14px;
   padding: 18px;
-  background: linear-gradient(135deg, oklch(0.42 0.1 var(--lang-h) / 0.7), transparent);
+  background: oklch(0.4 0.09 var(--lang-h));
   border-bottom: 1px solid var(--line);
 }
 

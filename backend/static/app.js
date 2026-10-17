@@ -535,7 +535,7 @@ function updatePlayPauseIcon(playing) {
 
 function updateTopBar(data) {
   paintFavouriteButton(data.track_id)
-  document.title = `${data.song} · ${data.artist} — LyricSync`
+  document.title = `LyricSync - ${data.song}`
   songName.textContent = data.song
   artistName.textContent = data.artist
   if (data.album_art && albumArt.getAttribute('src') !== data.album_art) {

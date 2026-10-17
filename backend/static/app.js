@@ -1224,53 +1224,128 @@ const recentList = document.getElementById('recent-list')
 
 const PLAY_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"/></svg>'
 
-function recentMessage(text) {
+// Language names for chips and labels, by DeepL's base code.
+const LANG_NAMES = {
+  AR: 'Arabic', BN: 'Bengali', DE: 'German', EL: 'Greek', EN: 'English', ES: 'Spanish',
+  FR: 'French', HI: 'Hindi', ID: 'Indonesian', IT: 'Italian', JA: 'Japanese', KO: 'Korean',
+  NL: 'Dutch', PA: 'Punjabi', PL: 'Polish', PT: 'Portuguese', RU: 'Russian', SV: 'Swedish',
+  TA: 'Tamil', TE: 'Telugu', TH: 'Thai', TR: 'Turkish', UK: 'Ukrainian', UR: 'Urdu',
+  VI: 'Vietnamese', ZH: 'Chinese'
+}
+
+function langName(code) {
+  const base = (code || '').split('-')[0]
+  return LANG_NAMES[base] || base
+}
+
+const RECENT_PAGE = 24
+let recentFilter = null     // a source language, or null for all
+let recentShowAll = false
+
+function recentMessage(text, sub) {
   recentList.innerHTML = ''
   const message = document.createElement('div')
-  message.className = 'recent-empty'
-  message.textContent = text
+  message.className = 'grid-empty'
+  const title = document.createElement('p')
+  title.className = 'grid-empty-title'
+  title.textContent = text
+  message.appendChild(title)
+  if (sub) {
+    const detail = document.createElement('p')
+    detail.className = 'grid-empty-sub'
+    detail.textContent = sub
+    message.appendChild(detail)
+  }
   recentList.appendChild(message)
 }
 
-function buildRecentItem(track) {
-  const row = document.createElement('div')
-  row.className = 'recent-item'
-  if (track.track_id === currentTrackId) row.classList.add('playing')
-  row.title = `Play ${track.song}`
+function langPill(source, target) {
+  const pill = document.createElement('span')
+  pill.className = 'lang-pill'
+  pill.textContent = `${langLabel(source)} → ${langLabel(target || 'EN')}`
+  paintLangPill(pill, source)
+  return pill
+}
 
-  const thumb = document.createElement('div')
-  thumb.className = 'recent-thumb'
-  if (track.album_art) {
-    const art = document.createElement('img')
-    art.src = track.album_art
-    art.alt = ''
-    thumb.appendChild(art)
+// Artwork, or a tile in the song's language colour when there's none.
+function songArt(track) {
+  const art = document.createElement('div')
+  art.className = 'song-card-art'
+  paintLangPill(art, track.source_lang)
+  const noArt = () => {
+    art.classList.add('no-art')
+    art.prepend(document.createTextNode('♫'))
   }
+  if (track.album_art) {
+    const img = document.createElement('img')
+    img.alt = ''
+    img.loading = 'lazy'
+    // artwork that won't load falls back to the colour tile, not a blank
+    img.addEventListener('error', () => { img.remove(); noArt() }, { once: true })
+    img.src = track.album_art
+    art.appendChild(img)
+  } else {
+    noArt()
+  }
+  return art
+}
 
-  // song and artist are set with textContent, not innerHTML — they're names
-  // that came from Spotify, and a track called <img onerror=...> is legal
-  const info = document.createElement('div')
-  info.className = 'recent-info'
-  const song = document.createElement('div')
-  song.className = 'recent-song'
-  song.textContent = track.song
-  const artist = document.createElement('div')
-  artist.className = 'recent-artist'
-  artist.textContent = track.artist
-  info.append(song, artist)
+// Song names come from Spotify, so everything here is textContent.
+function buildRecentItem(track) {
+  const card = document.createElement('button')
+  card.type = 'button'
+  card.className = 'song-card'
+  if (track.track_id === currentTrackId) card.classList.add('playing')
+  card.title = `Play ${track.song}`
 
-  const play = document.createElement('div')
-  play.className = 'recent-play'
+  const art = songArt(track)
+  const play = document.createElement('span')
+  play.className = 'song-card-play'
   play.innerHTML = PLAY_ICON
+  art.appendChild(play)
 
-  row.append(thumb, info, play)
-  row.addEventListener('click', () => playTrack(track))
-  return row
+  const title = document.createElement('span')
+  title.className = 'song-card-title'
+  title.textContent = track.song
+  const artist = document.createElement('span')
+  artist.className = 'song-card-artist'
+  artist.textContent = track.artist
+
+  card.append(art, title, artist)
+  if (track.source_lang) card.appendChild(langPill(track.source_lang, track.target_lang))
+  card.addEventListener('click', () => playTrack(track))
+  return card
+}
+
+function renderRecentChips(languages, total) {
+  const chips = document.getElementById('recent-chips')
+  chips.innerHTML = ''
+  if (!languages.length) return
+  const all = [{ lang: null, count: total }, ...languages]
+  all.forEach(({ lang, count }) => {
+    const chip = document.createElement('button')
+    chip.type = 'button'
+    chip.className = 'chip lang-chip'
+    chip.setAttribute('aria-pressed', String(recentFilter === lang))
+    chip.textContent = lang ? langName(lang) : 'All'
+    const n = document.createElement('span')
+    n.className = 'chip-count'
+    n.textContent = count
+    chip.appendChild(n)
+    if (lang) paintLangPill(chip, lang)
+    chip.addEventListener('click', () => {
+      recentFilter = lang
+      recentShowAll = false
+      loadRecent()
+    })
+    chips.appendChild(chip)
+  })
 }
 
 function renderRecent(tracks) {
   if (!tracks.length) {
-    recentMessage('Nothing translated yet — play a song in another language on Spotify.')
+    recentMessage('Nothing translated yet.',
+      "Play a song in another language and it'll appear here.")
     return
   }
   recentList.innerHTML = ''
@@ -1310,21 +1385,37 @@ function recordListen(track, sourceLang) {
 }
 
 async function loadRecent() {
-  recentMessage('Loading…')
+  const params = new URLSearchParams({ limit: recentShowAll ? 200 : RECENT_PAGE })
+  if (recentFilter) params.set('lang', recentFilter)
   try {
-    const res = await fetch('/history')
+    const res = await fetch(`/history?${params}`)
     if (res.status === 401) {
       recentMessage('Connect Spotify to see your listening history.')
       return
     }
     if (!res.ok) throw new Error(`history: ${res.status}`)
     const data = await res.json()
-    renderRecent(data.tracks || [])
+    const tracks = data.tracks || []
+    renderRecentChips(data.languages || [], data.total || 0)
+    renderRecent(tracks)
+
+    // how many the current filter holds, to know whether there's more
+    const inFilter = recentFilter
+      ? ((data.languages || []).find(l => l.lang === recentFilter) || {}).count || 0
+      : data.total || 0
+    const more = document.getElementById('recent-more')
+    more.hidden = recentShowAll || inFilter <= tracks.length
+    more.textContent = `Show all ${inFilter} songs`
   } catch (e) {
     console.error('Recently translated error:', e)
-    recentMessage("Couldn't load your history — try again in a moment.")
+    recentMessage("Couldn't load your history.", 'Try again in a moment.')
   }
 }
+
+document.getElementById('recent-more').addEventListener('click', () => {
+  recentShowAll = true
+  loadRecent()
+})
 
 // ─────────────────────────────────────────
 //  SETTINGS

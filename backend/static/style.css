@@ -598,71 +598,147 @@ body {
 
 #state-action:disabled { background: var(--jade-soft); color: var(--jade); cursor: default; }
 
-/* ── recently translated list ── */
-#recent-list {
+/* ── song grids (Recently Translated) ── */
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -6px 0 24px;
+}
+
+.filter-chips .chip { padding: 6px 13px; font-size: 13px; }
+
+.chip-count {
+  margin-left: 7px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* a language chip takes its language's colour when chosen */
+.lang-chip[aria-pressed="true"] {
+  color: oklch(0.86 0.1 var(--lang-h, 160));
+  background: oklch(0.8 0.1 var(--lang-h, 160) / 0.14);
+  border-color: oklch(0.8 0.1 var(--lang-h, 160) / 0.35);
+}
+
+.lang-chip[aria-pressed="true"] .chip-count { color: inherit; opacity: 0.7; }
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 14px;
+}
+
+.song-card {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 2px;
+  min-width: 0;
+  padding: 10px 10px 14px;
+  background: var(--ink-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  text-align: left;
+  transition: background 0.2s, transform 0.25s var(--ease), border-color 0.2s;
 }
 
-.recent-item {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 8px 10px;
-  border-radius: var(--radius);
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.recent-item:hover { background: var(--ink-2); }
-.recent-item:hover .recent-play { opacity: 1; }
-
-.recent-thumb {
-  width: 52px;
-  height: 52px;
-  border-radius: var(--radius-sm);
+.song-card:hover {
   background: var(--ink-3);
-  flex-shrink: 0;
-  overflow: hidden;
+  border-color: var(--line-strong);
+  transform: translateY(-2px);
 }
 
-.recent-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.song-card-art {
+  --lang-h: 160;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 10px;
+  background: var(--ink-3);
+}
 
-.recent-info { flex: 1; min-width: 0; }
+.song-card-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
-.recent-song {
-  font-size: 15px;
-  font-weight: 500;
+/* no artwork: a tile in the song's language colour */
+.song-card-art.no-art {
+  display: grid;
+  place-items: center;
+  font-size: 44px;
+  color: oklch(0.86 0.1 var(--lang-h));
+  background:
+    radial-gradient(80% 80% at 30% 20%, oklch(0.7 0.12 var(--lang-h) / 0.45), transparent),
+    var(--ink-3);
+}
+
+.song-card-play {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--jade);
+  color: var(--jade-ink);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.2s, transform 0.25s var(--ease);
+}
+
+.song-card-play svg { width: 16px; height: 16px; margin-left: 2px; }
+
+.song-card:hover .song-card-play,
+.song-card:focus-visible .song-card-play,
+.song-card.playing .song-card-play { opacity: 1; transform: none; }
+
+.song-card-title {
+  max-width: 100%;
+  font-size: 14.5px;
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.recent-artist {
+.song-card.playing .song-card-title { color: var(--jade); }
+
+.song-card-artist {
+  max-width: 100%;
   font-size: 13px;
   color: var(--text-3);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  margin-bottom: 8px;
 }
 
-.recent-play {
-  color: var(--jade);
-  opacity: 0;
-  transition: opacity 0.15s ease;
+.grid-footer {
   display: flex;
+  justify-content: center;
+  padding: 22px 0 6px;
 }
 
-.recent-play svg { width: 18px; height: 18px; }
+.grid-empty {
+  grid-column: 1 / -1;
+  padding: 48px 0;
+}
 
-.recent-item.playing .recent-song { color: var(--jade); }
-.recent-item.playing .recent-play { opacity: 1; }
+.grid-empty-title {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 28px;
+}
 
-.recent-empty {
-  padding: 24px 10px;
+.grid-empty-sub {
   font-size: 15px;
   color: var(--text-3);
+  margin-top: 6px;
 }
 
 /* ── queue panel ── */
@@ -1326,6 +1402,7 @@ body {
   :root { --gap: 8px; }
 
   .page-header { flex-wrap: wrap; }
+  .card-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
   .settings-row { flex-wrap: wrap; }
 
   #app {

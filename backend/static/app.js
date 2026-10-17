@@ -318,6 +318,26 @@ function langLabel(code) {
   return LANG_LABELS[base] || base
 }
 
+// Every language has its own colour: a hue for the pills, chips and cards
+// that mark it. Languages not listed get a stable hue from their code.
+const LANG_HUES = {
+  FR: 12, ES: 42, HI: 68, PA: 140, KO: 292, JA: 345, ZH: 28, PT: 172,
+  IT: 112, AR: 228, DE: 262, RU: 250, TR: 198, ID: 186, UR: 158, BN: 96,
+  TA: 54, TE: 82, NL: 32, PL: 318, SV: 214, VI: 128, TH: 276, EN: 206
+}
+
+function langHue(code) {
+  const base = (code || '').split('-')[0]
+  if (base in LANG_HUES) return LANG_HUES[base]
+  let hash = 0
+  for (const ch of base) hash = (hash * 31 + ch.charCodeAt(0)) % 360
+  return hash
+}
+
+function paintLangPill(el, code) {
+  el.style.setProperty('--lang-h', langHue(code))
+}
+
 function normaliseLyric(text) {
   return text.toLowerCase().replace(/\s+/g, ' ').trim()
 }
@@ -426,7 +446,75 @@ function updatePlayPauseIcon(playing) {
 function updateTopBar(data) {
   songName.textContent = data.song
   artistName.textContent = data.artist
-  if (data.album_art) albumArt.src = data.album_art
+  if (data.album_art && albumArt.getAttribute('src') !== data.album_art) {
+    albumArt.src = data.album_art
+    tintFromArtwork(data.album_art)
+  }
+}
+
+// The room takes on the colour of the album that's playing. Spotify's image
+// CDN allows cross-origin reads, so the artwork can be sampled on a canvas.
+function tintFromArtwork(url) {
+  const img = new Image()
+  img.crossOrigin = 'anonymous'
+  img.onload = () => {
+    try {
+      const size = 24
+      const canvas = document.createElement('canvas')
+      canvas.width = canvas.height = size
+      const ctx2d = canvas.getContext('2d', { willReadFrequently: true })
+      ctx2d.drawImage(img, 0, 0, size, size)
+      const pixels = ctx2d.getImageData(0, 0, size, size).data
+
+      // weight each pixel by how colourful it is, so a grey sleeve with one
+      // red stripe reads as red rather than as mud
+      let r = 0, g = 0, b = 0, total = 0
+      for (let i = 0; i < pixels.length; i += 4) {
+        const max = Math.max(pixels[i], pixels[i + 1], pixels[i + 2])
+        const min = Math.min(pixels[i], pixels[i + 1], pixels[i + 2])
+        const weight = (max - min) / 255 + 0.05
+        r += pixels[i] * weight
+        g += pixels[i + 1] * weight
+        b += pixels[i + 2] * weight
+        total += weight
+      }
+      const [h, s] = rgbToHsl(r / total, g / total, b / total)
+      // keep it luminous enough to glow on near-black, never neon
+      const [cr, cg, cb] = hslToRgb(h, Math.min(Math.max(s, 0.35), 0.7), 0.62)
+      document.documentElement.style.setProperty('--ambient', `${cr} ${cg} ${cb}`)
+    } catch (e) {
+      // a tainted canvas or odd image just keeps the previous colour
+    }
+  }
+  img.src = url
+}
+
+function rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255
+  const max = Math.max(r, g, b), min = Math.min(r, g, b)
+  const l = (max + min) / 2
+  if (max === min) return [0, 0, l]
+  const d = max - min
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+  let h
+  if (max === r) h = (g - b) / d + (g < b ? 6 : 0)
+  else if (max === g) h = (b - r) / d + 2
+  else h = (r - g) / d + 4
+  return [h / 6, s, l]
+}
+
+function hslToRgb(h, s, l) {
+  const hue = t => {
+    if (t < 0) t += 1
+    if (t > 1) t -= 1
+    if (t < 1 / 6) return p + (q - p) * 6 * t
+    if (t < 1 / 2) return q
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6
+    return p
+  }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s
+  const p = 2 * l - q
+  return [hue(h + 1 / 3), hue(h), hue(h - 1 / 3)].map(v => Math.round(v * 255))
 }
 
 function updateBottomBar(data) {
@@ -1607,7 +1695,7 @@ async function fetchNowPlaying() {
     const lang = dominantLanguage(currentLyrics)
     if (lang) {
       langBadge.textContent = `${langLabel(lang)} → ENG`
-      langBadge.className = `lang-${lang}`
+      paintLangPill(langBadge, lang)
       langBadge.style.display = 'block'
       if (currentTrackId) translation_cache_js[currentTrackId] = `${lang} → EN`
     }

@@ -61,6 +61,18 @@ SCHEMA = [
         added_at BIGINT NOT NULL,
         PRIMARY KEY (spotify_id, track_id)
     )''',
+    # each country's most played songs from Apple, refreshed twice a day
+    '''CREATE TABLE IF NOT EXISTS charts (
+        country TEXT PRIMARY KEY,
+        songs_json TEXT NOT NULL,
+        fetched_at BIGINT NOT NULL
+    )''',
+    # a chart song's Spotify track, found once and remembered
+    '''CREATE TABLE IF NOT EXISTS track_matches (
+        match_key TEXT PRIMARY KEY,
+        track_id TEXT NOT NULL,
+        matched_at BIGINT NOT NULL
+    )''',
     # songs people asked us to find lyrics for
     '''CREATE TABLE IF NOT EXISTS song_requests (
         spotify_id TEXT NOT NULL,

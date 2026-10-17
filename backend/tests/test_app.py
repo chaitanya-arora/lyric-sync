@@ -84,3 +84,13 @@ def test_me_route_without_session_is_unauthorized_or_redirect(client):
     """Without a logged-in session, /me should not silently succeed."""
     resp = client.get('/me')
     assert resp.status_code in (401, 302, 403)
+
+
+def test_page_has_every_view_the_script_switches_between(client):
+    """app.js shows and hides these by id; a missing one stops the script."""
+    html = client.get('/').get_data(as_text=True)
+    for view in ('now-playing', 'recent', 'settings', 'favourites',
+                 'home', 'search', 'explore', 'chart'):
+        assert f'id="view-{view}"' in html, view
+    for element in ('target-lang', 'onboard-target', 'fav-btn', 'library-list'):
+        assert f'id="{element}"' in html, element

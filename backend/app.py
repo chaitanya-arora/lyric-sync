@@ -9,6 +9,7 @@ import re
 import json
 
 import db
+import discover
 from romanised import detect_language
 
 load_dotenv()
@@ -1284,6 +1285,98 @@ def update_prefs(user_id):
             conn.execute(f'UPDATE users SET {column} = ? WHERE spotify_id = ?',
                          (value, user_id))
         return jsonify(user_prefs(conn, user_id))
+
+
+
+# ── discovering music: charts, search ──
+
+def track_summary(track):
+    """The fields the song rows need from a Spotify track object."""
+    album = track.get('album') or {}
+    return {
+        'track_id': track.get('id'),
+        'song': track.get('name'),
+        'artist': ', '.join(a['name'] for a in track.get('artists') or []),
+        'album': album.get('name'),
+        'album_art': thumbnail(album.get('images')),
+        'duration_ms': track.get('duration_ms'),
+    }
+
+
+@app.route('/discover/chart/<country>')
+def country_chart(country):
+    """A country's most played songs right now — Explore and the language tiles."""
+    if not get_access_token():
+        return jsonify({'error': 'Not authenticated'}), 401
+    if country not in discover.COUNTRIES:
+        return jsonify({'error': 'No chart for that country'}), 404
+    try:
+        songs = discover.chart(country)
+    except discover.ChartUnavailable:
+        return jsonify({'error': 'Chart unavailable'}), 502
+    name, lang = discover.COUNTRIES[country]
+    payload = jsonify({'country': country, 'name': name, 'lang': lang, 'songs': songs})
+    payload.headers['Cache-Control'] = 'private, max-age=600'
+    return payload
+
+
+@app.route('/discover/match', methods=['POST'])
+def match_track():
+    """Find a chart song on Spotify so it can be played. Remembered after the
+    first time, so a popular song is only ever searched for once."""
+    if not get_access_token():
+        return jsonify({'error': 'Not authenticated'}), 401
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({'error': 'expected a JSON object'}), 400
+    song, artist = body.get('song'), body.get('artist')
+    if (not isinstance(song, str) or not isinstance(artist, str)
+            or not song.strip() or not artist.strip()
+            or len(song) > MAX_TEXT or len(artist) > MAX_TEXT):
+        return jsonify({'error': 'song and artist are required'}), 400
+    country = body.get('country')
+    market = country.upper() if country in discover.COUNTRIES else 'from_token'
+
+    track_id = discover.cached_match(song, artist)
+    if track_id:
+        return jsonify({'track_id': track_id})
+
+    for query in discover.match_queries(song, artist):
+        res = spotify_get(f"{SPOTIFY_API_URL}/search",
+                          params={'q': query, 'type': 'track', 'limit': 1, 'market': market})
+        if res is None or res.status_code == 401:
+            return jsonify({'error': 'Not authenticated'}), 401
+        if res.status_code != 200:
+            continue
+        items = ((res.json().get('tracks') or {}).get('items')) or []
+        if items and items[0].get('id'):
+            discover.remember_match(song, artist, items[0]['id'])
+            return jsonify({'track_id': items[0]['id']})
+    return jsonify({'error': 'Not on Spotify'}), 404
+
+
+SEARCH_LIMIT = 20
+
+
+@app.route('/search')
+def search():
+    """Search Spotify for songs."""
+    if not get_access_token():
+        return jsonify({'error': 'Not authenticated'}), 401
+    query = (request.args.get('q') or '').strip()
+    if not query:
+        return jsonify({'tracks': []})
+    if len(query) > MAX_TEXT:
+        return jsonify({'error': 'Search is too long'}), 400
+    res = spotify_get(f"{SPOTIFY_API_URL}/search",
+                      params={'q': query, 'type': 'track', 'limit': SEARCH_LIMIT,
+                              'market': 'from_token'})
+    if res is None or res.status_code == 401:
+        return jsonify({'error': 'Not authenticated'}), 401
+    if res.status_code != 200:
+        return jsonify({'error': f'Spotify API error: {res.status_code}'}), 502
+    items = ((res.json().get('tracks') or {}).get('items')) or []
+    return jsonify({'tracks': [track_summary(t) for t in items if t and t.get('id')]})
 
 
 if __name__ == '__main__':

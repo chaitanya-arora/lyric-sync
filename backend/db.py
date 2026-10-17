@@ -73,6 +73,14 @@ SCHEMA = [
         track_id TEXT NOT NULL,
         matched_at BIGINT NOT NULL
     )''',
+    # which Spotify account a sign-in belongs to, by a hash of its refresh
+    # token — so a session that loses its user id gets it back without
+    # asking Spotify, which may be rate-limiting us
+    '''CREATE TABLE IF NOT EXISTS logins (
+        token_hash TEXT PRIMARY KEY,
+        spotify_id TEXT NOT NULL,
+        created_at BIGINT NOT NULL
+    )''',
     # songs people asked us to find lyrics for
     '''CREATE TABLE IF NOT EXISTS song_requests (
         spotify_id TEXT NOT NULL,

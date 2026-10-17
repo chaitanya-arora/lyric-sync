@@ -1,6 +1,7 @@
 from flask import Flask, redirect, request, session, jsonify, render_template
 from dotenv import load_dotenv
 import functools
+import hashlib
 import os
 import secrets
 import requests
@@ -182,6 +183,8 @@ def refresh_access_token():
             # Spotify sometimes rotates the refresh token too — store if present
             if 'refresh_token' in data:
                 session['refresh_token'] = data['refresh_token']
+                if session.get('user_id'):
+                    remember_login(session['user_id'])
             return data['access_token']
     except Exception:
         pass
@@ -309,6 +312,7 @@ def callback():
     # this login may be a different account from the last one
     session.pop('user_id', None)
     session.pop('profile', None)
+    session.pop('login_saved', None)
     try:
         current_user_id()
     except requests.RequestException:
@@ -367,12 +371,14 @@ def remember_profile(me_json):
     session['profile'] = profile
     if isinstance(profile['id'], str) and profile['id']:
         session['user_id'] = profile['id']
+        save_user(profile['id'], profile['display_name'])
+        remember_login(profile['id'])
     return profile
 
 
 def profile_from_db():
     """The name we saved at sign-in, when Spotify can't be asked."""
-    user_id = session.get('user_id')
+    user_id = session.get('user_id') or remembered_login()
     if not user_id:
         return None
     with db.connect() as conn:
@@ -384,6 +390,10 @@ def profile_from_db():
 
 @app.route('/logout', methods=['POST'])
 def logout():
+    key = login_key()
+    if key:
+        with db.connect() as conn:
+            conn.execute('DELETE FROM logins WHERE token_hash = ?', (key,))
     session.clear()
     return ('', 204)  # frontend handles showing the welcome screen
 
@@ -1068,13 +1078,56 @@ def save_user(user_id, display_name=None):
         )
 
 
+def login_key():
+    refresh_token = session.get('refresh_token')
+    if not refresh_token:
+        return None
+    return hashlib.sha256(refresh_token.encode()).hexdigest()
+
+
+def remember_login(user_id):
+    key = login_key()
+    if not key:
+        return
+    with db.connect() as conn:
+        conn.execute(
+            'INSERT INTO logins (token_hash, spotify_id, created_at) VALUES (?, ?, ?) '
+            'ON CONFLICT (token_hash) DO UPDATE SET spotify_id = excluded.spotify_id',
+            (key, user_id, db.now())
+        )
+    session['login_saved'] = True
+
+
+def remembered_login():
+    key = login_key()
+    if not key:
+        return None
+    with db.connect() as conn:
+        row = conn.execute('SELECT spotify_id FROM logins WHERE token_hash = ?', (key,)).fetchone()
+    return row[0] if row else None
+
+
 def current_user_id():
-    """The signed-in Spotify account's id, looked up once per session."""
+    """The signed-in Spotify account's id.
+
+    From the session; failing that, from the sign-in we remembered; only
+    failing both, from Spotify. Two requests finishing together can each
+    save the session and drop what the other added, and asking Spotify
+    every time that happened is what ran into its rate limits.
+    """
     user_id = session.get('user_id')
     if user_id:
+        # sessions from before sign-ins were remembered: remember this one
+        if not session.get('login_saved'):
+            remember_login(user_id)
+            session['login_saved'] = True
         return user_id
     if not get_access_token():
         return None
+    user_id = remembered_login()
+    if user_id:
+        session['user_id'] = user_id
+        return user_id
     res = spotify_get(f"{SPOTIFY_API_URL}/me")
     if res is None or res.status_code != 200:
         app.logger.warning('Looking up the signed-in user failed: Spotify answered %s',
@@ -1085,11 +1138,7 @@ def current_user_id():
     except ValueError:
         return None
     remember_profile(me_json)
-    user_id = session.get('user_id')
-    if not user_id:
-        return None
-    save_user(user_id, me_json.get('display_name'))
-    return user_id
+    return session.get('user_id')
 
 
 def require_user(view):

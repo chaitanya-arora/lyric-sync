@@ -368,3 +368,68 @@ def test_a_long_rate_limit_is_handed_back(client, monkeypatch):
     with app_module.app.test_request_context():
         app_module.session['access_token'] = 'test-token'
         assert app_module.spotify_get('https://api.spotify.com/v1/me').status_code == 429
+
+
+# --- remembering who a sign-in belongs to ---
+
+def signed_in_with_refresh_token(client, token='refresh-1'):
+    with client.session_transaction() as session:
+        session['access_token'] = 'test-token'
+        session['refresh_token'] = token
+
+
+def drop_user_id(client):
+    """What a session cookie overwritten by another request looks like."""
+    with client.session_transaction() as session:
+        session.pop('user_id', None)
+        session.pop('profile', None)
+
+
+def test_a_lost_user_id_comes_back_without_asking_spotify(client, database, monkeypatch):
+    signed_in_with_refresh_token(client)
+    calls = []
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        return FakeResponse(200, {'id': 'cherry', 'display_name': 'Cherry'})
+    monkeypatch.setattr(app_module, 'spotify_get', fake_get)
+    assert client.get('/history').status_code == 200
+    assert len(calls) == 1
+
+    drop_user_id(client)
+    monkeypatch.setattr(app_module, 'spotify_get', lambda url, **kw: FakeResponse(429))
+    assert client.get('/history').status_code == 200
+
+
+def test_an_existing_session_is_remembered_too(client, database, monkeypatch):
+    """Signed in before sign-ins were remembered: user id but no login row."""
+    signed_in_with_refresh_token(client)
+    sign_in(client)
+    client.get('/history')
+    drop_user_id(client)
+    monkeypatch.setattr(app_module, 'spotify_get', lambda url, **kw: FakeResponse(429))
+    assert client.get('/history').status_code == 200
+
+
+def test_a_rotated_refresh_token_is_remembered(client, database, monkeypatch):
+    signed_in_with_refresh_token(client, 'old')
+    sign_in(client)
+    client.get('/history')
+    monkeypatch.setattr(app_module.requests, 'post', lambda url, **kw: FakeResponse(
+        200, {'access_token': 'new-access', 'refresh_token': 'new', 'expires_in': 3600}))
+    with app_module.app.test_request_context():
+        with client.session_transaction() as saved:
+            app_module.session.update(saved)
+        app_module.refresh_access_token()
+        with db.connect() as conn:
+            rows = conn.execute('SELECT spotify_id FROM logins').fetchall()
+    assert len(rows) == 2 and {r[0] for r in rows} == {'cherry'}
+
+
+def test_disconnecting_forgets_the_sign_in(client, database):
+    signed_in_with_refresh_token(client)
+    sign_in(client)
+    client.get('/history')
+    client.post('/logout')
+    with db.connect() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM logins').fetchone()[0] == 0

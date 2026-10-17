@@ -470,8 +470,11 @@ body {
   text-transform: uppercase;
   padding: 4px 9px;
   border-radius: 999px;
-  color: var(--lang-ink);
-  background: var(--lang-color);
+  /* the tile centre's look: the colour a touch deeper, white text with
+     the tiles' soft shadow — not a flat neon block with black text */
+  color: #fff;
+  background: color-mix(in srgb, var(--lang-color) 86%, black);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.22);
   border: none;
   white-space: nowrap;
   flex-shrink: 0;
@@ -673,8 +676,9 @@ body {
 
 /* a language chip takes its language's colour when chosen */
 .lang-chip[aria-pressed="true"] {
-  color: var(--lang-ink, var(--accent-ink));
-  background: var(--lang-color, var(--accent));
+  color: #fff;
+  background: color-mix(in srgb, var(--lang-color, var(--accent)) 86%, black);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.22);
   border-color: transparent;
 }
 
@@ -1275,9 +1279,9 @@ body {
   margin-left: 6px;
   padding: 4px 12px;
   border-radius: 999px;
-  background: var(--lang-color);
-  color: var(--lang-ink);
-  text-shadow: none;
+  background: color-mix(in srgb, var(--lang-color) 86%, black);
+  color: #fff;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.22);
 }
 
 #chart-native:empty { display: none; }

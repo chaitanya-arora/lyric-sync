@@ -607,7 +607,66 @@ function showToast(message, ms = 5000) {
   toastTimer = setTimeout(() => toast.classList.remove('visible'), ms)
 }
 
+// ─────────────────────────────────────────
+//  PLAYING IN THE BROWSER
+// ─────────────────────────────────────────
+
+// Spotify's Web Playback SDK makes this tab a Spotify device called
+// "LyricSync". When nothing else is playing, songs started here play here;
+// when a phone or speaker is already playing, they go there as before.
+// It needs Premium and a desktop browser — anywhere else it stays quiet.
+const PLAY_ACTIONS = new Set(['play', 'play_track', 'play_tracks', 'play_context'])
+let webPlayer = null
+let webPlayerId = null          // this tab's device id, once it's ready
+let spotifyHasDevice = false    // whether Spotify reports an active device
+
+function startWebPlayer() {
+  if (webPlayer) {
+    webPlayer.connect()   // signed in again after disconnecting
+    return
+  }
+  if (document.getElementById('spotify-sdk')) return   // still loading
+  window.onSpotifyWebPlaybackSDKReady = () => {
+    webPlayer = new Spotify.Player({
+      name: 'LyricSync',
+      volume: 0.8,
+      getOAuthToken: callback => {
+        fetch('/player-token')
+          .then(r => (r.ok ? r.json() : Promise.reject(r.status)))
+          .then(data => callback(data.access_token))
+          .catch(() => {})
+      }
+    })
+    webPlayer.addListener('ready', ({ device_id }) => { webPlayerId = device_id })
+    webPlayer.addListener('not_ready', () => { webPlayerId = null })
+    // no Premium, an unsupported browser, or a session from before the
+    // streaming permission: playback simply stays on other devices
+    for (const event of ['initialization_error', 'authentication_error', 'account_error']) {
+      webPlayer.addListener(event, () => { webPlayerId = null })
+    }
+    webPlayer.connect()
+  }
+  const script = document.createElement('script')
+  script.id = 'spotify-sdk'
+  script.src = 'https://sdk.scdn.co/spotify-player.js'
+  document.head.appendChild(script)
+}
+
+function stopWebPlayer() {
+  if (webPlayer) webPlayer.disconnect()
+  webPlayerId = null
+}
+
+// Browsers only let a page start sound in response to a click. Called at
+// the top of each click that plays something, before anything is awaited.
+function unlockWebPlayer() {
+  if (webPlayer && webPlayer.activateElement) webPlayer.activateElement()
+}
+
 async function postPlayback(body) {
+  if (PLAY_ACTIONS.has(body.action) && !spotifyHasDevice && webPlayerId) {
+    body = { ...body, device_id: webPlayerId }
+  }
   const res = await fetch('/playback', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -653,6 +712,7 @@ async function sendPlayback(action) {
 }
 
 async function togglePlayPause() {
+  unlockWebPlayer()
   const action = isPlaying ? 'pause' : 'play'
   await sendPlayback(action)
 }
@@ -937,6 +997,7 @@ document.querySelectorAll('#library-chips .chip').forEach(chip => {
 })
 
 async function playContext(item) {
+  unlockWebPlayer()
   try {
     const result = await postPlayback({ action: 'play_context', context_uri: item.uri })
     if (!result.ok) {
@@ -1038,6 +1099,7 @@ async function removeFavourite(track) {
 
 // Play the list from one song on, so it carries on through the rest.
 async function playFavourites(index) {
+  unlockWebPlayer()
   try {
     const result = await postPlayback({
       action: 'play_tracks',
@@ -1200,6 +1262,7 @@ async function fetchChart(country) {
 
 // Chart songs come from Apple: find each on Spotify when it's played.
 async function playChartSong(song, country, button) {
+  unlockWebPlayer()
   if (button) button.classList.add('busy')
   try {
     const res = await fetch('/discover/match', {
@@ -1511,6 +1574,24 @@ function sizeGlobe() {
 
 window.addEventListener('resize', sizeGlobe)
 
+const PIN_ICON = '<svg viewBox="0 0 24 30" aria-hidden="true"><path d="M12 1C6.2 1 1.5 5.6 1.5 11.3 1.5 19 12 29 12 29s10.5-10 10.5-17.7C22.5 5.6 17.8 1 12 1z"/><circle cx="12" cy="11.3" r="3.6"/></svg>'
+const pinsByCode = {}
+
+// A flat map pin in the country's language colour, tip on the country.
+function pinElement(d) {
+  const pin = document.createElement('button')
+  pin.type = 'button'
+  pin.className = 'globe-pin'
+  pin.style.setProperty('--lang-h', langHue(d.lang))
+  pin.title = `${flag(d.code)} ${d.name}`
+  pin.setAttribute('aria-label', `Explore ${d.name}`)
+  pin.innerHTML = PIN_ICON
+  pin.style.pointerEvents = 'auto'   // the globe's overlay ignores the pointer otherwise
+  pin.addEventListener('click', () => flyTo(d.code))
+  pinsByCode[d.code] = pin
+  return pin
+}
+
 async function openExplore() {
   if (globe) {
     sizeGlobe()
@@ -1522,8 +1603,8 @@ async function openExplore() {
     showToast("Couldn't load the globe — check your connection.")
     return
   }
-  const points = Object.entries(COUNTRIES).map(([code, [name, lang, lat, lng]]) =>
-    ({ code, name, lat, lng, color: `hsl(${langHue(lang)}, 75%, 65%)` }))   // three.js wants the comma form
+  const pins = Object.entries(COUNTRIES).map(([code, [name, lang, lat, lng]]) =>
+    ({ code, name, lang, lat, lng }))
 
   globe = Globe()(document.getElementById('globe'))
     .backgroundColor('rgba(0,0,0,0)')
@@ -1531,24 +1612,72 @@ async function openExplore() {
     .showAtmosphere(true)
     .atmosphereColor('#1db954')
     .atmosphereAltitude(0.18)
-    .pointsData(points)
-    .pointColor('color')
-    .pointAltitude(d => d.code === exploreCountry ? 0.14 : 0.04)
-    .pointRadius(d => d.code === exploreCountry ? 1.1 : 0.75)
-    .pointLabel(d => `${flag(d.code)} ${d.name}`)
-    .onPointClick(d => selectCountry(d.code))
+    .htmlElementsData(pins)
+    .htmlLat('lat')
+    .htmlLng('lng')
+    .htmlAltitude(0.005)
+    .htmlElement(pinElement)
   globe.controls().autoRotate = true
   globe.controls().autoRotateSpeed = 0.5
   globe.pointOfView({ lat: 20, lng: 60, altitude: 2.3 })
   sizeGlobe()
 }
 
-function selectCountry(code) {
-  exploreCountry = code
-  const [name, lang, lat, lng] = COUNTRIES[code]
+const LANDED_ALTITUDE = 1.7
+let spinning = false
+
+// Clicking a pin: glide over to it.
+function flyTo(code) {
+  if (spinning) return
+  const [, , lat, lng] = COUNTRIES[code]
   globe.controls().autoRotate = false
-  globe.pointOfView({ lat, lng, altitude: 1.7 }, 1600)
-  globe.pointsData(globe.pointsData())   // redraw so the chosen one stands up
+  globe.pointOfView({ lat, lng, altitude: LANDED_ALTITUDE }, 1400)
+  showCountry(code)
+}
+
+// The spin: a few full turns, fast and then slowing, settling on the
+// country. Its songs appear once it has landed.
+function spinTo(code) {
+  const [, , lat, lng] = COUNTRIES[code]
+  const start = globe.pointOfView()
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
+  const turns = reduceMotion ? 0 : 3
+  // always travel eastward, through whole turns, ending on the country
+  const delta = (((lng - start.lng) % 360) + 360) % 360 + 360 * turns
+  const duration = reduceMotion ? 600 : 3600
+  const began = performance.now()
+
+  spinning = true
+  globe.controls().autoRotate = false
+  document.getElementById('spin-btn').disabled = true
+  for (const pin of Object.values(pinsByCode)) pin.classList.remove('selected')
+
+  function frame(now) {
+    const t = Math.min((now - began) / duration, 1)
+    const eased = 1 - Math.pow(1 - t, 4)   // quick off the mark, a long slow settle
+    globe.pointOfView({
+      lat: start.lat + (lat - start.lat) * eased,
+      lng: start.lng + delta * eased,
+      altitude: start.altitude + (LANDED_ALTITUDE - start.altitude) * eased
+    }, 0)
+    if (t < 1) {
+      requestAnimationFrame(frame)
+      return
+    }
+    spinning = false
+    document.getElementById('spin-btn').disabled = false
+    // a last short glide puts it exactly on the country, whatever the
+    // turns accumulated along the way
+    globe.pointOfView({ lat, lng, altitude: LANDED_ALTITUDE }, 400)
+    showCountry(code)
+  }
+  requestAnimationFrame(frame)
+}
+
+function showCountry(code) {
+  exploreCountry = code
+  const [name, lang] = COUNTRIES[code]
+  for (const [c, pin] of Object.entries(pinsByCode)) pin.classList.toggle('selected', c === code)
 
   document.getElementById('explore-intro').classList.add('docked')
   document.getElementById('view-explore').classList.add('has-panel')
@@ -1563,16 +1692,9 @@ function selectCountry(code) {
 }
 
 document.getElementById('spin-btn').addEventListener('click', () => {
-  if (!globe) return
+  if (!globe || spinning) return
   const codes = Object.keys(COUNTRIES).filter(c => c !== exploreCountry)
-  const pick = codes[Math.floor(Math.random() * codes.length)]
-  // a quick spin first, so it feels like the globe chose
-  globe.controls().autoRotate = true
-  globe.controls().autoRotateSpeed = 30
-  setTimeout(() => {
-    globe.controls().autoRotateSpeed = 0.5
-    selectCountry(pick)
-  }, 900)
+  spinTo(codes[Math.floor(Math.random() * codes.length)])
 })
 
 // ─────────────────────────────────────────
@@ -2009,6 +2131,7 @@ function renderRecent(tracks) {
 }
 
 async function playTrack(track) {
+  unlockWebPlayer()
   location.hash = '#/now-playing'
   try {
     const result = await postPlayback({ action: 'play_track', track_id: track.track_id })
@@ -2370,6 +2493,7 @@ async function disconnectSpotify() {
 // after Disconnect, or when the server says the session has gone.
 function signedOut() {
   isLoggedIn = false
+  stopWebPlayer()
   accessProblem = null
   libraryItems = []
   libraryList.innerHTML = ''
@@ -2545,12 +2669,15 @@ async function fetchNowPlaying() {
       isLoggedIn = true
       loadPrefs()
       loadFavourites()
+      startWebPlayer()
       loadLibrary()
       showBars()
       fetchContext()
     }
 
     const data = await response.json()
+    // with no active device Spotify answers "nothing playing" (204)
+    spotifyHasDevice = Boolean(data.playing && data.device && data.device.id)
 
     // ── PAUSED or NOTHING PLAYING ──
     // Freeze everything exactly as-is, for as long as it stays paused.

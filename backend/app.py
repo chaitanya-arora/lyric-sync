@@ -48,6 +48,8 @@ SCOPE = ' '.join([
     'user-library-read',        # saved albums and podcasts, for Your Library
     'playlist-read-private',    # private playlists, for Your Library
     'user-read-email',          # the address shown in Settings
+    'streaming',                # playing in the browser (Web Playback SDK)
+    'user-read-private',        # which the browser player also needs
 ])
 
 # how many 'recently played' tracks the sidebar shows
@@ -155,6 +157,12 @@ def fetch_lyrics(song, artist):
     return {'found': False, 'message': 'No lyrics available for this track'}
 
 
+def remember_expiry(token_data):
+    """Note when the access token runs out, so the browser player can be
+    handed one with life left in it."""
+    session['token_expires_at'] = db.now() + int(token_data.get('expires_in') or 3600)
+
+
 def refresh_access_token():
     refresh_token = session.get('refresh_token')
     if not refresh_token:
@@ -169,6 +177,7 @@ def refresh_access_token():
         data = response.json()
         if 'access_token' in data:
             session['access_token'] = data['access_token']
+            remember_expiry(data)
             # Spotify sometimes rotates the refresh token too — store if present
             if 'refresh_token' in data:
                 session['refresh_token'] = data['refresh_token']
@@ -297,6 +306,7 @@ def callback():
 
     session['access_token'] = token_data['access_token']
     session['refresh_token'] = token_data['refresh_token']
+    remember_expiry(token_data)
     # this login may be a different account from the last one
     session.pop('user_id', None)
     try:
@@ -305,6 +315,24 @@ def callback():
         pass   # looked up again on the first request that needs it
 
     return redirect('/')
+
+
+@app.route('/player-token')
+def player_token():
+    """An access token for the in-browser player.
+
+    Spotify's Web Playback SDK runs in the page and needs the token itself;
+    everything else goes through this server. It's handed out fresh, so the
+    player never starts with one about to lapse.
+    """
+    if not get_access_token():
+        return jsonify({'error': 'Not authenticated'}), 401
+    if session.get('token_expires_at', 0) < db.now() + 120:
+        if not refresh_access_token():
+            return jsonify({'error': 'Not authenticated'}), 401
+    payload = jsonify({'access_token': get_access_token()})
+    payload.headers['Cache-Control'] = 'no-store'
+    return payload
 
 
 @app.route('/me')
@@ -645,7 +673,10 @@ PLAYBACK_ACTIONS = ('play', 'pause', 'next', 'previous', 'seek', 'play_track',
                     'play_tracks', 'play_context', 'shuffle', 'repeat', 'volume',
                     'transfer')
 
-MAX_PLAY_TRACKS = 100   # a Favourites list at a time; Spotify takes more
+MAX_PLAY_TRACKS = 100
+
+# the actions that start something playing, and so can choose where
+PLAY_ACTIONS = ('play', 'play_track', 'play_tracks', 'play_context')   # a Favourites list at a time; Spotify takes more
 
 # what Your Library can start playing: a whole playlist, album or podcast
 CONTEXT_URI_PATTERN = re.compile(r'^spotify:(playlist|album|show):[A-Za-z0-9]{1,64}$')
@@ -760,10 +791,13 @@ def playback():
                                or not 0 <= volume <= 100):
         return jsonify({'error': 'volume_percent must be 0 to 100'}), 400
 
+    # transfer needs a device; starting playback may name one — LyricSync's
+    # own browser player, when nothing else is playing
     device_id = body.get('device_id')
-    if action == 'transfer' and (not isinstance(device_id, str)
-                                 or not DEVICE_ID_PATTERN.match(device_id)):
+    if (action == 'transfer' or device_id is not None) and (
+            not isinstance(device_id, str) or not DEVICE_ID_PATTERN.match(device_id)):
         return jsonify({'error': 'device_id must be a Spotify device id'}), 400
+    on_device = {'device_id': device_id} if device_id and action in PLAY_ACTIONS else None
 
     position_ms = body.get('position_ms')
     if action == 'seek':
@@ -775,7 +809,7 @@ def playback():
 
     def send():
         if action == 'play':
-            return spotify_put(f"{SPOTIFY_API_URL}/me/player/play")
+            return spotify_put(f"{SPOTIFY_API_URL}/me/player/play", params=on_device)
         if action == 'pause':
             return spotify_put(f"{SPOTIFY_API_URL}/me/player/pause")
         if action == 'next':
@@ -784,17 +818,17 @@ def playback():
             return spotify_post(f"{SPOTIFY_API_URL}/me/player/previous")
         if action == 'play_track':
             return spotify_put(
-                f"{SPOTIFY_API_URL}/me/player/play",
+                f"{SPOTIFY_API_URL}/me/player/play", params=on_device,
                 json={'uris': [f'spotify:track:{track_id}']}
             )
         if action == 'play_tracks':
             return spotify_put(
-                f"{SPOTIFY_API_URL}/me/player/play",
+                f"{SPOTIFY_API_URL}/me/player/play", params=on_device,
                 json={'uris': [f'spotify:track:{t}' for t in track_ids],
                       'offset': {'position': offset}}
             )
         if action == 'play_context':
-            return spotify_put(f"{SPOTIFY_API_URL}/me/player/play",
+            return spotify_put(f"{SPOTIFY_API_URL}/me/player/play", params=on_device,
                                json={'context_uri': context_uri})
         if action == 'shuffle':
             return spotify_put(f"{SPOTIFY_API_URL}/me/player/shuffle",
@@ -819,7 +853,8 @@ def playback():
     # Resuming a session paused a while ago lands here: the device is idle
     # rather than gone. Wake it and retry, instead of telling the user to go
     # back to Spotify for something we can do ourselves.
-    if is_no_active_device(r) and wake_device(play=(action == 'play')):
+    # (not when the browser player was named: that's where it should play)
+    if not on_device and is_no_active_device(r) and wake_device(play=(action == 'play')):
         if action == 'play':
             return jsonify({'success': True, 'woke_device': True})
         r = send()

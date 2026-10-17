@@ -1,4 +1,4 @@
-# Environment variables - NEVER commit these
+# Secrets: copy .env.example to .env and never commit it
 .env
 
 # Python
@@ -6,12 +6,12 @@ __pycache__/
 *.pyc
 venv/
 *.egg-info/
+.pytest_cache/
 
-# Mac OS
-.DS_Store
-
-# VS Code
-.vscode/
-
-# Local translation cache database
+# The local SQLite database (production uses Postgres)
 backend/translations.db
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store

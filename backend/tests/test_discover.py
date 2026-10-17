@@ -119,8 +119,8 @@ def spotify_search(signed_in, spotify, monkeypatch, database):
 
 
 def match(client, **body):
-    return client.post('/discover/match', json={'song': 'Ashke', 'artist': 'Karan Aujla & MXRCI',
-                                               'country': 'in', **body})
+    return client.post('/discover/match', json={
+        'song': 'Ashke', 'artist': 'Karan Aujla & MXRCI', 'country': 'in', **body})
 
 
 def test_match_finds_the_song_in_that_country(signed_in, spotify_search):

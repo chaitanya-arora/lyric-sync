@@ -609,6 +609,7 @@ TARGET_LANGUAGES = frozenset('''
     ZH-HANS ZH-HANT ZU
 '''.split())
 
+
 @app.route('/devices')
 def devices():
     """Spotify devices this account can play on, for the device picker."""
@@ -1050,11 +1051,11 @@ def translate():
     })
 
 
-
 # ── per-user data ──
 #
 # Everything below belongs to one Spotify account, identified by its Spotify
 # user id. Translations themselves stay shared: they're the same for everyone.
+
 
 def save_user(user_id, display_name=None):
     with db.connect() as conn:
@@ -1370,8 +1371,8 @@ def update_prefs(user_id):
         return jsonify(user_prefs(conn, user_id))
 
 
-
 # ── discovering music: charts, search ──
+
 
 def track_summary(track):
     """The fields the song rows need from a Spotify track object."""

@@ -502,7 +502,6 @@ def test_deepl_timeout_is_retryable(translate):
     assert client.get(TRANSLATE_URL).status_code == 502
 
 
-
 def test_translate_requires_authentication(client):
     """DeepL's quota is shared — anonymous callers mustn't be able to spend it."""
     assert client.get(TRANSLATE_URL).status_code == 401

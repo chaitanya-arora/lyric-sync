@@ -83,7 +83,6 @@ const ORBS = [
 ]
 
 let floats = []
-let orbPhase = 0
 let animFrame = null
 let isAnimating = false
 
@@ -139,16 +138,11 @@ function drawOrbs(t) {
   })
 }
 
-function drawFloats(t) {
-  // Floats are now DOM elements animated via CSS — nothing to draw on canvas
-}
-
 function animateWelcome(t) {
   if (!isAnimating) return
   animFrame = requestAnimationFrame(animateWelcome)
   ctx.clearRect(0, 0, canvas.width, canvas.height)
   drawOrbs(t)
-  // floats are DOM-based, no canvas draw needed
 }
 
 function startWelcomeAnimation() {
@@ -1957,10 +1951,6 @@ function currentRoute() {
   const [name, param] = location.hash.replace(/^#\/?/, '').split('/')
   if (name === 'chart' && !(param in COUNTRIES)) return { view: 'home' }
   return VIEWS.includes(name) ? { view: name, param } : { view: 'now-playing' }
-}
-
-function currentView() {
-  return currentRoute().view
 }
 
 function route() {

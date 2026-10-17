@@ -915,7 +915,8 @@ def translate():
     # DeepL can't place romanised Hindi or Punjabi by itself, but translates
     # it well once told. English lines in the same song come back unchanged.
     romanised_lang = detect_language(texts_to_translate)
-    if romanised_lang:
+    # DeepL refuses a source that matches the target (Hindi into Hindi)
+    if romanised_lang and romanised_lang != target_lang.split('-')[0]:
         deepl_body['source_lang'] = romanised_lang
 
     try:
@@ -1137,6 +1138,16 @@ def history(user_id):
     })
     payload.headers['Cache-Control'] = 'no-store'
     return payload
+
+
+@app.route('/history', methods=['DELETE'])
+@require_user
+def clear_history(user_id):
+    """Forget the user's Recently Translated list. The translations themselves
+    are shared by everyone, so they stay."""
+    with db.connect() as conn:
+        conn.execute('DELETE FROM listen_history WHERE spotify_id = ?', (user_id,))
+    return ('', 204)
 
 
 FAVOURITE_KEYS = ('track_id', 'song', 'artist', 'album', 'album_art',

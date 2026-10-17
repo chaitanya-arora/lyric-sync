@@ -279,3 +279,14 @@ def test_prefs_ignore_unknown_fields(user):
     with db.connect() as conn:
         ids = [row[0] for row in conn.execute('SELECT spotify_id FROM users').fetchall()]
     assert ids == ['cherry']
+
+
+def test_clearing_history_only_clears_your_own(client, database):
+    sign_in(client, 'cherry')
+    listen(client, 'A')
+    sign_in(client, 'someone-else')
+    listen(client, 'B')
+    assert client.delete('/history').status_code == 204
+    assert history(client)['tracks'] == []
+    sign_in(client, 'cherry')
+    assert [t['track_id'] for t in history(client)['tracks']] == ['A']

@@ -342,10 +342,10 @@ function normaliseLyric(text) {
   return text.toLowerCase().replace(/\s+/g, ' ').trim()
 }
 
-// A line DeepL left alone was already in English — there's nothing to show
-// underneath it, but the line itself still belongs in the song.
+// A line DeepL left alone was already in the language we're translating
+// into — there's nothing to show under it, but it still belongs in the song.
 function needsTranslation(line) {
-  if (line.detected_language === 'EN') return false
+  if (line.detected_language === targetBase()) return false
   return normaliseLyric(line.original) !== normaliseLyric(line.translation)
 }
 
@@ -535,9 +535,11 @@ function updateBottomBar(data) {
 
 function applyTranslationEnabled(enabled) {
   translationEnabled = enabled
-  const toggle = document.getElementById('toggle-switch')
-  toggle.classList.toggle('on', translationEnabled)
-  toggle.setAttribute('aria-checked', String(translationEnabled))
+  for (const id of ['toggle-switch', 'settings-translate-toggle']) {
+    const toggle = document.getElementById(id)
+    toggle.classList.toggle('on', translationEnabled)
+    toggle.setAttribute('aria-checked', String(translationEnabled))
+  }
   document.querySelectorAll('.lyric-translation').forEach(el => {
     el.style.display = translationEnabled ? '' : 'none'
   })
@@ -559,6 +561,11 @@ async function loadPrefs() {
     if (!res.ok) return
     const prefs = await res.json()
     applyTranslationEnabled(prefs.auto_translate !== false)
+    if (prefs.target_lang && prefs.target_lang !== targetLang) {
+      targetLang = prefs.target_lang
+      targetSelect.value = targetLang
+      reloadLyrics()   // anything already loaded was fetched in English
+    }
   } catch (e) {
     console.warn('Loading settings failed:', e)
   }
@@ -926,7 +933,7 @@ async function playContext(item) {
 
 // Hash routes, so the back button and a refresh keep you on the same page.
 const PLACEHOLDER_TITLES = { home: 'Home', search: 'Search', favourites: 'Favourites' }
-const VIEWS = ['now-playing', 'recent', ...Object.keys(PLACEHOLDER_TITLES)]
+const VIEWS = ['now-playing', 'recent', 'settings', ...Object.keys(PLACEHOLDER_TITLES)]
 
 function currentView() {
   const name = location.hash.replace(/^#\/?/, '')
@@ -937,6 +944,7 @@ function route() {
   const view = currentView()
   document.getElementById('view-now-playing').hidden = view !== 'now-playing'
   document.getElementById('view-recent').hidden = view !== 'recent'
+  document.getElementById('view-settings').hidden = view !== 'settings'
 
   const placeholder = PLACEHOLDER_TITLES[view]
   document.getElementById('view-placeholder').hidden = !placeholder
@@ -951,6 +959,7 @@ function route() {
   document.getElementById('btn-lyrics').classList.toggle('on', view === 'now-playing')
 
   if (view === 'recent') loadRecent()
+  if (view === 'settings') loadSettings()
   if (view === 'now-playing') recentreLyrics()
 }
 
@@ -1295,7 +1304,7 @@ function recordListen(track, sourceLang) {
       artist: track.artist,
       album_art: track.album_art || null,
       source_lang: sourceLang || null,
-      target_lang: 'EN'
+      target_lang: targetLang
     })
   }).catch(e => console.warn('Recording history failed:', e))
 }
@@ -1317,35 +1326,122 @@ async function loadRecent() {
   }
 }
 
-// ── settings modal ──
-document.getElementById('sidebar-settings-btn').addEventListener('click', openSettings)
-document.getElementById('settings-modal').addEventListener('click', function(e) {
-  if (e.target === this) closeSettings()
+// ─────────────────────────────────────────
+//  SETTINGS
+// ─────────────────────────────────────────
+
+// The languages offered in "Translate into" — DeepL target codes.
+const TARGET_CHOICES = [
+  ['EN', 'English'], ['AR', 'Arabic'], ['BN', 'Bengali'], ['ZH-HANS', 'Chinese (Simplified)'],
+  ['NL', 'Dutch'], ['FR', 'French'], ['DE', 'German'], ['EL', 'Greek'], ['HI', 'Hindi'],
+  ['ID', 'Indonesian'], ['IT', 'Italian'], ['JA', 'Japanese'], ['KO', 'Korean'],
+  ['PL', 'Polish'], ['PT-BR', 'Portuguese (Brazil)'], ['PA', 'Punjabi'], ['RU', 'Russian'],
+  ['ES', 'Spanish'], ['SV', 'Swedish'], ['TA', 'Tamil'], ['TH', 'Thai'], ['TR', 'Turkish'],
+  ['UK', 'Ukrainian'], ['UR', 'Urdu'], ['VI', 'Vietnamese']
+]
+
+let targetLang = 'EN'
+const targetSelect = document.getElementById('target-lang')
+
+TARGET_CHOICES.forEach(([code, name]) => {
+  const option = document.createElement('option')
+  option.value = code
+  option.textContent = name
+  targetSelect.appendChild(option)
 })
 
-function openSettings() {
-  // populate account name if we have it
-  fetch('/me')
-    .then(r => r.json())
-    .then(data => {
-      const nameEl = document.getElementById('settings-account-name')
-      if (nameEl && data.display_name) nameEl.textContent = data.display_name
-      const emailEl = document.getElementById('settings-account-email')
-      if (emailEl && data.email) emailEl.textContent = data.email
-    })
-    .catch(() => {})
-  document.getElementById('settings-modal').style.display = 'flex'
+function targetBase() {
+  return targetLang.split('-')[0]
 }
 
-function closeSettings() {
-  document.getElementById('settings-modal').style.display = 'none'
+function targetName() {
+  const choice = TARGET_CHOICES.find(([code]) => code === targetLang)
+  return choice ? choice[1] : targetLang
+}
+
+targetSelect.addEventListener('change', async () => {
+  const previous = targetLang
+  targetLang = targetSelect.value
+  try {
+    const res = await fetch('/prefs', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_lang: targetLang })
+    })
+    if (!res.ok) throw new Error(`prefs: ${res.status}`)
+    showToast(`Lyrics will now be translated into ${targetName()}`, 3000)
+    reloadLyrics()
+  } catch (e) {
+    targetLang = previous
+    targetSelect.value = previous
+    showToast("Couldn't save that — try again in a moment.")
+  }
+})
+
+// Fetch the playing song's lyrics again, e.g. in a new target language.
+function reloadLyrics() {
+  currentTrackId = null
+  prefetchedTrackId = null
+  fetchNowPlaying()
+}
+
+async function loadSettings() {
+  try {
+    const me = await (await fetch('/me')).json()
+    const name = me.display_name || 'Your account'
+    document.getElementById('profile-name').textContent = name
+    document.getElementById('profile-avatar').textContent = name.trim().charAt(0).toUpperCase()
+    document.getElementById('settings-email').textContent =
+      me.email ? `${me.email} · Connected` : 'Connected'
+  } catch (e) { /* keeps the generic labels */ }
+  refreshHistoryCount()
+}
+
+async function refreshHistoryCount() {
+  try {
+    const res = await fetch('/history?limit=1')
+    if (!res.ok) return
+    const total = (await res.json()).total
+    document.getElementById('settings-history-count').textContent =
+      total === 1 ? '1 song in Recently Translated' : `${total} songs in Recently Translated`
+  } catch (e) { /* leaves the last count up */ }
+}
+
+// Clearing asks twice instead of popping a browser dialog: the first click
+// arms the button for a few seconds, the second does it.
+let clearArmedUntil = 0
+async function clearHistory() {
+  const button = document.getElementById('clear-history-btn')
+  if (Date.now() > clearArmedUntil) {
+    clearArmedUntil = Date.now() + 3000
+    button.textContent = 'Click again to clear'
+    button.classList.add('armed')
+    setTimeout(() => {
+      if (Date.now() >= clearArmedUntil) {
+        button.textContent = 'Clear'
+        button.classList.remove('armed')
+      }
+    }, 3100)
+    return
+  }
+  clearArmedUntil = 0
+  button.textContent = 'Clear'
+  button.classList.remove('armed')
+  try {
+    const res = await fetch('/history', { method: 'DELETE' })
+    if (!res.ok) throw new Error(`history: ${res.status}`)
+    showToast('Listening history cleared', 3000)
+    refreshHistoryCount()
+  } catch (e) {
+    showToast("Couldn't clear your history — try again in a moment.")
+  }
 }
 
 async function disconnectSpotify() {
   try {
     await fetch('/logout', { method: 'POST' })
   } catch(e) {}
-  closeSettings()
+  location.hash = '#/now-playing'
   signedOut()
 }
 
@@ -1387,7 +1483,7 @@ async function prefetchNextTrack() {
     prefetchedTrackId = next.track_id
     console.log(`[prefetch] Starting: ${next.song} — ${next.artist}`)
 
-    const url = `/translate?song=${encodeURIComponent(next.song)}&artist=${encodeURIComponent(next.artist)}&track_id=${encodeURIComponent(next.track_id)}&target_lang=EN`
+    const url = `/translate?song=${encodeURIComponent(next.song)}&artist=${encodeURIComponent(next.artist)}&track_id=${encodeURIComponent(next.track_id)}&target_lang=${encodeURIComponent(targetLang)}`
     const r = await fetch(url)
     const d = await r.json()
     console.log(`[prefetch] Done: ${d.cached ? 'cache hit' : 'freshly translated'} — ${next.song}`)
@@ -1644,7 +1740,7 @@ async function fetchNowPlaying() {
     let translateData
     try {
       const translateRes = await fetch(
-        `/translate?song=${encodeURIComponent(data.song)}&artist=${encodeURIComponent(data.artist)}&track_id=${encodeURIComponent(data.track_id)}&target_lang=EN`
+        `/translate?song=${encodeURIComponent(data.song)}&artist=${encodeURIComponent(data.artist)}&track_id=${encodeURIComponent(data.track_id)}&target_lang=${encodeURIComponent(targetLang)}`
       )
       if (translateRes.status === 401) {
         signedOut()
@@ -1686,15 +1782,15 @@ async function fetchNowPlaying() {
       currentLyrics = []
       currentContentState = 'english'
       showContent('message', {
-        title: 'Already in English',
-        subtitle: 'No translation needed for this track.'
+        title: `Already in ${targetName()}`,
+        subtitle: 'No translation needed for this one — just enjoy it.'
       })
       return
     }
 
     const lang = dominantLanguage(currentLyrics)
     if (lang) {
-      langBadge.textContent = `${langLabel(lang)} → ENG`
+      langBadge.textContent = `${langLabel(lang)} → ${langLabel(targetLang)}`
       paintLangPill(langBadge, lang)
       langBadge.style.display = 'block'
       if (currentTrackId) translation_cache_js[currentTrackId] = `${lang} → EN`

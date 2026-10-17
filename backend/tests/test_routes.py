@@ -802,3 +802,16 @@ def test_play_context_rejects_other_uris(playback, uri):
     resp = client.post('/playback', json={'action': 'play_context', 'context_uri': uri})
     assert resp.status_code == 400
     assert calls == []
+
+
+def test_romanised_hindi_into_hindi_is_left_to_deepl(translate):
+    """DeepL refuses a source language that matches the target."""
+    client, stub = translate
+    lines = ['Main tumse pyaar karta hoon', 'Tum bin jeena mushkil hai',
+             'Kya hua jo raat dhal gayi', 'Mujhe kuch nahi chahiye']
+    stub['lyrics'] = {'found': True, 'synced': True,
+                      'lyrics': [{'time_ms': i, 'text': t} for i, t in enumerate(lines)]}
+    stub['deepl'] = DeepLResponse(200, {'translations': [
+        {'text': 'x', 'detected_source_language': 'HI'}] * len(lines)})
+    client.get(TRANSLATE_URL + '&target_lang=HI')
+    assert 'source_lang' not in stub['deepl_bodies'][0]

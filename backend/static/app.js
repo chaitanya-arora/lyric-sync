@@ -60,26 +60,17 @@ const welcomeLoginBtn = document.getElementById('welcome-login-btn')
 const canvas = document.getElementById('welcome-canvas')
 const ctx = canvas.getContext('2d')
 
-// Floating elements — flag emojis + music notes, each with a colour hue
-// Flags chosen for breadth of world music genres LyricSync supports
-const LANG_ITEMS = [
-  { text: '🇫🇷', hue: 355 },  // France   — coral red
-  { text: '🇮🇳', hue: 42  },  // India    — amber
-  { text: '🇰🇷', hue: 22  },  // Korea    — orange
-  { text: '🇪🇸', hue: 82  },  // Spain    — lime
-  { text: '🇧🇷', hue: 168 },  // Brazil   — teal
-  { text: '🇯🇵', hue: 235 },  // Japan    — periwinkle
-  { text: '🇲🇽', hue: 315 },  // Mexico   — magenta
-  { text: '🇮🇹', hue: 335 },  // Italy    — hot pink
-  { text: '🇩🇪', hue: 200 },  // Germany  — steel blue
-  { text: '🇨🇳', hue: 272 },  // China    — purple
-  { text: '🇵🇹', hue: 100 },  // Portugal — yellow-green
-  { text: '🇸🇦', hue: 130 },  // Arabia   — green
-  { text: '♪',   hue: 142 },  // Note     — Spotify green
-  { text: '♫',   hue: 142 },  // Note     — Spotify green
-  { text: '♩',   hue: 60  },  // Note     — warm yellow
-  { text: '♬',   hue: 142 },  // Note     — Spotify green
+// What floats up the welcome screen: the word "music" in the languages
+// LyricSync plays, in their own scripts, between drawn music notes.
+const MUSIC_WORDS = [
+  'संगीत', 'ਸੰਗੀਤ', '음악', '音楽', '音乐', 'موسيقى', 'música', 'musique',
+  'musica', 'Musik', 'müzik', 'музыка', 'μουσική', 'muziek', 'musik', 'nhạc'
 ]
+const NOTE_ICONS = [
+  '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3z"/></svg>',
+  '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 3 9 5.5v9.06A3.5 3.5 0 1 0 11 18V9.3l8-1.66v5.42A3.5 3.5 0 1 0 21 16z"/></svg>'
+]
+const FLOAT_COLOURS = ['#f2a3a0', '#f7b482', '#f9d49e', '#cdeb8b', '#abd5d2', '#afbde2', '#c2aae0', '#e4bfee', '#f6b8d3']
 
 // Aura orbs — brighter, more vivid than before
 const ORBS = [
@@ -102,38 +93,28 @@ function resizeCanvas() {
 }
 
 function initFloats() {
-  // Remove any existing DOM floats
   document.querySelectorAll('.welcome-float').forEach(el => el.remove())
 
-  const count = 28
-  const container = welcomeScreen
-
+  const count = 26
   for (let i = 0; i < count; i++) {
-    const item = LANG_ITEMS[i % LANG_ITEMS.length]
     const el = document.createElement('div')
     el.className = 'welcome-float'
+    // mostly words, with a note every third float
+    if (i % 3 === 2) {
+      el.innerHTML = NOTE_ICONS[i % NOTE_ICONS.length]
+      el.classList.add('note')
+    } else {
+      el.textContent = MUSIC_WORDS[i % MUSIC_WORDS.length]
+    }
 
-    const startX = Math.random() * 100   // vw %
-    const startY = 100 + Math.random() * 40  // start below viewport
-    const size = 18 + Math.random() * 16
-    const opacity = 0.12 + Math.random() * 0.2
-    const duration = 8 + Math.random() * 10  // seconds to float up
-    const delay = -(Math.random() * duration) // stagger start
-
-    el.textContent = item.text
-    el.style.cssText = `
-      position: absolute;
-      left: ${startX}%;
-      top: ${startY}%;
-      font-size: ${size}px;
-      opacity: ${opacity};
-      color: hsla(${item.hue}, 80%, 70%, 1);
-      pointer-events: none;
-      z-index: 1;
-      animation: floatUp ${duration}s ${delay}s linear infinite;
-      filter: drop-shadow(0 0 6px hsla(${item.hue}, 80%, 60%, 0.4));
-    `
-    container.appendChild(el)
+    const duration = 10 + Math.random() * 12   // seconds to float up
+    el.style.left = `${Math.random() * 96}%`
+    el.style.top = `${100 + Math.random() * 40}%`
+    el.style.fontSize = `${15 + Math.random() * 14}px`
+    el.style.color = FLOAT_COLOURS[i % FLOAT_COLOURS.length]
+    el.style.setProperty('--float-opacity', (0.35 + Math.random() * 0.35).toFixed(2))
+    el.style.animation = `floatUp ${duration}s ${-(Math.random() * duration)}s linear infinite`
+    welcomeScreen.appendChild(el)
   }
 }
 
@@ -1280,8 +1261,19 @@ const LANGUAGE_COUNTRY = {
 }
 const DEFAULT_PICKS = ['FR', 'HI', 'KO', 'ES', 'PA']
 
-function flag(country) {
-  return [...country.toUpperCase()].map(c => String.fromCodePoint(0x1f1a5 + c.charCodeAt(0))).join('')
+// Flags are icons (flag-icons, MIT), not emoji, which render as letters on
+// some systems and look out of place on all of them.
+function flagIcon(country, className = 'flag-icon') {
+  const img = document.createElement('img')
+  img.className = className
+  img.alt = ''
+  img.src = `https://cdn.jsdelivr.net/npm/flag-icons@7.6.0/flags/4x3/${country}.svg`
+  return img
+}
+
+function setFlag(holderId, country) {
+  const holder = document.getElementById(holderId)
+  holder.replaceChildren(flagIcon(country))
 }
 
 const chartCache = {}
@@ -1399,7 +1391,7 @@ function languageTile(spec) {
   title.textContent = spec.title
   const sub = document.createElement('span')
   sub.className = 'lang-tile-sub'
-  sub.textContent = `${flag(spec.country)} Top songs in ${COUNTRIES[spec.country][0]}`
+  sub.append(flagIcon(spec.country), `Top songs in ${COUNTRIES[spec.country][0]}`)
   tile.append(title, sub)
   return tile
 }
@@ -1409,7 +1401,7 @@ async function loadChartPage(country) {
   const [name, lang] = COUNTRIES[country]
   const tile = LANGUAGE_TILES.find(t => t.country === country)
   paintTile(document.getElementById('chart-hero'), tile || { lang })
-  document.getElementById('chart-flag').textContent = flag(country)
+  setFlag('chart-flag', country)
   document.getElementById('chart-title').textContent = tile ? tile.title : name
   document.getElementById('chart-subtitle').textContent = `The most played songs in ${name} today`
   renderChartInto(document.getElementById('chart-list'), country, 25)
@@ -1617,7 +1609,7 @@ function pinElement(d) {
   pin.type = 'button'
   pin.className = 'globe-pin'
   paintSwatch(pin, langSwatch(d.lang))
-  pin.title = `${flag(d.code)} ${d.name}`
+  pin.title = d.name
   pin.setAttribute('aria-label', `Explore ${d.name}`)
   pin.innerHTML = PIN_ICON
   pin.style.pointerEvents = 'auto'   // the globe's overlay ignores the pointer otherwise
@@ -1719,7 +1711,7 @@ function showCountry(code) {
   panel.hidden = false
   setTimeout(sizeGlobe, 420)   // once the globe has moved over for the panel
   paintTile(panel, { lang })
-  document.getElementById('explore-flag').textContent = flag(code)
+  setFlag('explore-flag', code)
   document.getElementById('explore-name').textContent = name
   document.getElementById('explore-lang').textContent = 'Most played right now'
   renderChartInto(document.getElementById('explore-list'), code, 15)
@@ -1987,6 +1979,8 @@ function renderContext(prev, next) {
   }
 }
 
+const HISTORY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-label="Played"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg>'
+
 // Built with textContent rather than an HTML string: song and artist names
 // come from Spotify, and a track called <img onerror=...> is legal there.
 function buildQueueItem(track, direction, num) {
@@ -1995,7 +1989,8 @@ function buildQueueItem(track, direction, num) {
 
   const number = document.createElement('div')
   number.className = 'queue-num'
-  number.textContent = direction === 'next' ? num : '↩'
+  if (direction === 'next') number.textContent = num
+  else number.innerHTML = HISTORY_ICON
 
   const thumb = document.createElement('img')
   thumb.className = 'queue-thumb'
@@ -2086,7 +2081,7 @@ function songArt(track) {
   paintLangPill(art, track.source_lang)
   const noArt = () => {
     art.classList.add('no-art')
-    art.prepend(document.createTextNode('♫'))
+    art.insertAdjacentHTML('afterbegin', NOTE_ICONS[0])
   }
   if (track.album_art) {
     const img = document.createElement('img')

@@ -1305,7 +1305,7 @@ body {
   border-bottom: 1px solid var(--line);
 }
 
-#explore-flag { font-size: 40px; line-height: 1; }
+#explore-flag .flag-icon { width: 46px; height: 34px; border-radius: 6px; }
 
 #explore-name {
   font-family: var(--font-display);
@@ -1950,7 +1950,17 @@ body {
 #welcome-note a { color: var(--accent-soft); text-decoration: none; font-weight: 600; }
 #welcome-note a:hover { text-decoration: underline; }
 
-/* ── welcome screen floating elements ── */
+/* ── welcome screen floating elements: "music" in many scripts ── */
+.welcome-float {
+  position: absolute;
+  z-index: 1;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.welcome-float.note svg { width: 1.3em; height: 1.3em; display: block; }
 @keyframes floatUp {
   0% { transform: translateY(0) rotate(0deg); opacity: 0; }
   10% { opacity: var(--float-opacity, 0.4); }
@@ -2198,3 +2208,23 @@ body {
   }
   #lyrics-container { scroll-behavior: auto; }
 }
+
+/* ── flags: icons, never emoji ── */
+.flag-icon {
+  display: inline-block;
+  width: 18px;
+  height: 13.5px;
+  border-radius: 3px;
+  object-fit: cover;
+  vertical-align: -2px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12);
+  flex-shrink: 0;
+}
+
+.lang-tile-sub { display: flex; align-items: center; gap: 7px; }
+
+#chart-flag .flag-icon { width: 46%; height: auto; aspect-ratio: 4 / 3; border-radius: 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25); }
+
+/* artwork fallback and queue history marker, drawn rather than typed */
+.song-card-art.no-art svg { width: 38%; height: 38%; color: rgba(255, 255, 255, 0.92); }
+.queue-num svg { width: 14px; height: 14px; vertical-align: middle; }

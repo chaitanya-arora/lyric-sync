@@ -1811,10 +1811,13 @@ function loadGlobeLibrary() {
 function sizeGlobe() {
   if (!globe) return
   const box = document.getElementById('globe')
+  if (!box.clientWidth || !box.clientHeight) return   // hidden on another page
   globe.width(box.clientWidth).height(box.clientHeight)
 }
 
-window.addEventListener('resize', sizeGlobe)
+// whenever the globe's box changes — the window, or the songs column
+// opening beside it — the globe redraws to fit, centred in the box
+new ResizeObserver(sizeGlobe).observe(document.getElementById('globe'))
 
 const PIN_ICON = '<svg viewBox="0 0 24 30" aria-hidden="true"><path d="M12 1C6.2 1 1.5 5.6 1.5 11.3 1.5 19 12 29 12 29s10.5-10 10.5-17.7C22.5 5.6 17.8 1 12 1z"/><circle cx="12" cy="11.3" r="3.6"/></svg>'
 const pinsByCode = {}
@@ -1921,11 +1924,9 @@ function showCountry(code) {
   const [name, lang] = COUNTRIES[code]
   for (const [c, pin] of Object.entries(pinsByCode)) pin.classList.toggle('selected', c === code)
 
-  document.getElementById('explore-intro').classList.add('docked')
   document.getElementById('view-explore').classList.add('has-panel')
   const panel = document.getElementById('explore-panel')
   panel.hidden = false
-  setTimeout(sizeGlobe, 420)   // once the globe has moved over for the panel
   paintTile(panel, { lang })
   setFlag('explore-flag', code)
   document.getElementById('explore-name').textContent = name

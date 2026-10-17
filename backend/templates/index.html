@@ -232,28 +232,33 @@
         <div id="chart-list" class="song-list"></div>
       </section>
 
-      <!-- explore: spin the globe -->
+      <!-- explore: a header, then the globe in its own stage, with the
+           chosen country's songs in a column beside it -->
       <section id="view-explore" class="view" hidden>
-        <div id="globe"></div>
-        <div id="explore-intro">
-          <div class="eyebrow">Explore</div>
-          <h1 class="page-title">Every language has a song.</h1>
-          <p class="page-subtitle">Spin the globe and hear what the world is playing.</p>
+        <header id="explore-head">
+          <div>
+            <div class="eyebrow">Explore</div>
+            <h1 class="page-title">Every language has a song.</h1>
+            <p class="page-subtitle">Spin the globe and hear what the world is playing.</p>
+          </div>
           <button id="spin-btn" class="btn-primary" type="button">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M2.5 12h19M12 2.5c2.6 2.6 3.9 5.8 3.9 9.5s-1.3 6.9-3.9 9.5c-2.6-2.6-3.9-5.8-3.9-9.5s1.3-6.9 3.9-9.5z"/></svg>
             Spin the globe
           </button>
-        </div>
-        <aside id="explore-panel" hidden>
-          <div id="explore-country">
-            <span id="explore-flag"></span>
-            <div>
-              <div class="eyebrow" id="explore-lang"></div>
-              <h2 id="explore-name"></h2>
+        </header>
+        <div id="explore-stage">
+          <div id="globe"></div>
+          <aside id="explore-panel" hidden>
+            <div id="explore-country">
+              <span id="explore-flag"></span>
+              <div>
+                <div class="eyebrow" id="explore-lang"></div>
+                <h2 id="explore-name"></h2>
+              </div>
             </div>
-          </div>
-          <div id="explore-list" class="song-list compact"></div>
-        </aside>
+            <div id="explore-list" class="song-list compact"></div>
+          </aside>
+        </div>
       </section>
 
       <!-- settings -->

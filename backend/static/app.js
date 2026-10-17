@@ -429,9 +429,9 @@ function updateActiveLine(index) {
 // scrollIntoView would also scroll #main — overflow:hidden, but still
 // scrollable from script — and shove the whole card up. Scroll the lyrics
 // well alone.
-function centreLine(line) {
+function centreLine(line, instant = false) {
   const top = line.offsetTop - (lyricsContainer.clientHeight - line.offsetHeight) / 2
-  lyricsContainer.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' })
+  lyricsContainer.scrollTo({ top: Math.max(top, 0), behavior: instant ? 'instant' : 'smooth' })
 }
 
 // A line can't be scrolled to while the lyrics are hidden (behind the welcome
@@ -440,6 +440,9 @@ function centreLine(line) {
 function recentreLyrics() {
   currentLineIndex = -1
   syncActiveLine(isPlaying ? progressMs + (Date.now() - lastServerSync) : progressMs)
+  // arriving at the lyrics jumps to the line; only moving between lines glides
+  const active = lyricsInner.querySelector('.lyric-line.active')
+  if (active) centreLine(active, true)
 }
 
 function paintProgress(ms, dur = durationMs) {

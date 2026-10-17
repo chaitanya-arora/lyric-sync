@@ -2,11 +2,23 @@
    LYRICSYNC — DESIGN TOKENS
 
    Every language has one colour (--lang-color), from the Browse All
-   colours in the Figma file at full strength, with --lang-ink for text set
-   on it. The app's accent (--accent) is the colour of the language that's
-   playing, so it changes as you travel; LyricSync green when none is.
+   colours in the Figma file. Small things (pills, pins) are solid, with
+   --lang-ink for text; tiles and covers are the Figma's "bubble" — full
+   colour in the middle, softening to the edges — with white text. The
+   playing song's colour (--accent) tints Now Playing and the player only.
    Headings are set in Righteous, everything you read in Inter.
 ───────────────────────────────────────── */
+
+/* the bubble: declared on each surface so it picks up that surface's
+   --lang-color rather than :root's */
+.lang-tile, .song-card-art, #chart-cover, #explore-country {
+  --bubble: radial-gradient(ellipse 60% 68% at 50% 50%,
+    var(--lang-color) 0%, var(--lang-color) 25%,
+    color-mix(in srgb, var(--lang-color) 55%, white) 100%);
+  --bubble-left: radial-gradient(ellipse 80% 150% at 30% 50%,
+    var(--lang-color) 0%, var(--lang-color) 40%,
+    color-mix(in srgb, var(--lang-color) 62%, white) 100%);
+}
 
 /* registered so the accent can fade from one language to the next */
 @property --accent { syntax: '<color>'; inherits: true; initial-value: #1ed760; }
@@ -37,6 +49,9 @@
 
   /* only for Connect with Spotify */
   --spotify-green: #1db954;
+
+  /* white text on the bubble colours, lifted off the paler edges */
+  --bubble-shadow: 0 1px 2px rgb(0 0 0 / 0.18), 0 2px 14px rgb(0 0 0 / 0.16);
 
   --danger: #ff8473;
   --danger-soft: rgba(255, 132, 115, 0.12);
@@ -710,8 +725,8 @@ body {
   display: grid;
   place-items: center;
   font-size: 44px;
-  color: var(--lang-ink);
-  background: radial-gradient(90% 100% at 25% 15%, color-mix(in srgb, var(--lang-color) 78%, white), var(--lang-color) 70%);
+  color: #fff;
+  background: var(--bubble);
 }
 
 .song-card-play {
@@ -1013,25 +1028,28 @@ body {
 
 .tile-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(12px, 1.4vw, 20px);
 }
 
 .lang-tile {
   --lang-color: #1ed760;
-  --lang-ink: #0b0c0f;
   position: relative;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  min-height: 112px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 118px;
   padding: 14px 16px;
   border-radius: var(--radius-lg);
+  text-align: center;
   text-decoration: none;
   overflow: hidden;
-  background: radial-gradient(90% 100% at 25% 15%, color-mix(in srgb, var(--lang-color) 78%, white), var(--lang-color) 70%);
-  color: var(--lang-ink);
-  transition: transform 0.25s var(--ease), box-shadow 0.25s;
+  background: var(--bubble);
+  color: #fff;
+  text-shadow: var(--bubble-shadow);
+  transition: transform 0.25s var(--ease), filter 0.25s;
 }
 
 .lang-tile:hover {
@@ -1042,13 +1060,16 @@ body {
 .lang-tile-title {
   font-family: var(--font-display);
   font-weight: 400;
-  font-size: 18px;
+  font-size: clamp(19px, 1.7vw, 24px);
+  line-height: 1.15;
 }
 
-.lang-tile-sub {
-  font-size: 12.5px;
-  font-weight: 500;
-  color: color-mix(in srgb, var(--lang-ink) 78%, transparent);
+/* the language's own name, in its own script */
+.lang-tile-native {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  opacity: 0.92;
 }
 
 /* top picks: a row of artwork cards */
@@ -1212,7 +1233,7 @@ body {
   place-items: center;
   border-radius: var(--radius-lg);
   font-size: clamp(48px, 5vw, 72px);
-  background: radial-gradient(90% 100% at 25% 15%, color-mix(in srgb, var(--lang-color) 78%, white), var(--lang-color) 70%);
+  background: var(--bubble);
 }
 
 /* ── explore ── */
@@ -1311,11 +1332,12 @@ body {
   align-items: center;
   gap: 14px;
   padding: 18px;
-  background: radial-gradient(90% 100% at 25% 15%, color-mix(in srgb, var(--lang-color) 78%, white), var(--lang-color) 70%);
-  color: var(--lang-ink);
+  background: var(--bubble-left);
+  color: #fff;
+  text-shadow: var(--bubble-shadow);
 }
 
-#explore-country .eyebrow { color: color-mix(in srgb, var(--lang-ink) 70%, transparent); }
+#explore-country .eyebrow { color: rgb(255 255 255 / 0.85); }
 
 #explore-flag .flag-icon { width: 46px; height: 34px; border-radius: 6px; }
 
@@ -2232,10 +2254,284 @@ body {
   flex-shrink: 0;
 }
 
-.lang-tile-sub { display: flex; align-items: center; gap: 7px; }
 
 #chart-flag .flag-icon { width: 46%; height: auto; aspect-ratio: 4 / 3; border-radius: 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25); }
 
 /* artwork fallback and queue history marker, drawn rather than typed */
-.song-card-art.no-art svg { width: 38%; height: 38%; color: var(--lang-ink); }
+.song-card-art.no-art svg { width: 38%; height: 38%; color: #fff; }
 .queue-num svg { width: 14px; height: 14px; vertical-align: middle; }
+
+/* ── pages ease in rather than snapping ── */
+.view.page:not([hidden]) { animation: viewIn 0.32s var(--ease); }
+
+@keyframes viewIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ── loading placeholders ── */
+.skeleton {
+  display: block;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--ink-3) 0%, var(--ink-4) 50%, var(--ink-3) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.3s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+.skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+}
+
+.sk-art { width: 44px; height: 44px; flex-shrink: 0; }
+.song-list.compact .sk-art { width: 40px; height: 40px; }
+.sk-lines { flex: 1; display: grid; gap: 7px; }
+.sk-line { height: 11px; width: 62%; }
+.sk-line.short { width: 38%; }
+
+.skeleton-card { display: grid; gap: 8px; }
+.sk-cover { aspect-ratio: 1; border-radius: var(--radius); margin-bottom: 2px; }
+
+/* ── empty and error notes ── */
+.list-message {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  grid-column: 1 / -1;
+}
+
+.list-message .btn-quiet {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.list-message .btn-quiet svg { width: 15px; height: 15px; }
+
+/* ── lyric timing nudge ── */
+#view-now-playing { position: relative; }
+
+#timing-nudge {
+  position: absolute;
+  right: clamp(14px, 2vw, 26px);
+  bottom: 14px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(18, 19, 24, 0.86);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+  opacity: 0.35;
+  transition: opacity 0.2s;
+}
+
+#view-now-playing:hover #timing-nudge,
+#timing-nudge:focus-within,
+#timing-nudge.nudged { opacity: 1; }
+
+#timing-nudge.nudged #timing-value { color: var(--accent); }
+
+#timing-value { min-width: 96px; text-align: center; font-variant-numeric: tabular-nums; }
+
+#timing-nudge button {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-2);
+}
+
+#timing-nudge button:hover { background: var(--ink-4); color: var(--text); }
+#timing-nudge svg { width: 13px; height: 13px; }
+
+/* ── the music passport ── */
+#passport-count { font-size: 13px; font-weight: 600; color: var(--text-3); }
+
+.passport {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 4px 2px 6px;
+}
+
+/* a rubber stamp: the language in its own script, inked in its colour */
+.stamp {
+  --lang-color: #1ed760;
+  --lang-ink: #0b0c0f;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 128px;
+  padding: 14px 18px 12px;
+  border: 2px solid var(--lang-color);
+  border-radius: 14px;
+  outline: 1.5px dashed color-mix(in srgb, var(--lang-color) 70%, transparent);
+  outline-offset: -8px;
+  background: color-mix(in srgb, var(--lang-color) 12%, transparent);
+  color: var(--lang-color);
+  text-decoration: none;
+  transform: rotate(var(--tilt, 0deg));
+  transition: transform 0.25s var(--ease), background 0.2s;
+}
+
+.stamp:hover {
+  transform: rotate(0deg) scale(1.04);
+  background: color-mix(in srgb, var(--lang-color) 22%, transparent);
+}
+
+.stamp-native {
+  font-family: var(--font-display);
+  font-size: 22px;
+  line-height: 1.3;
+}
+
+.stamp-name {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.stamp-count { font-size: 12px; color: var(--text-2); }
+
+/* ── the first song in a new language ── */
+#celebration {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: grid;
+  place-items: center;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.celebration-card {
+  --lang-color: #1ed760;
+  --bubble: radial-gradient(ellipse 60% 68% at 50% 50%,
+    var(--lang-color) 0%, var(--lang-color) 25%,
+    color-mix(in srgb, var(--lang-color) 55%, white) 100%);
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: min(340px, calc(100vw - 48px));
+  padding: 28px 36px 26px;
+  border-radius: 24px;
+  background: var(--bubble);
+  color: #fff;
+  text-align: center;
+  text-shadow: var(--bubble-shadow);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  animation: stampDown 0.55s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+.celebration-eyebrow {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.celebration-native {
+  font-family: var(--font-display);
+  font-size: clamp(40px, 6vw, 60px);
+  line-height: 1.2;
+}
+
+.celebration-note { font-size: 14px; font-weight: 600; }
+
+@keyframes stampDown {
+  from { opacity: 0; transform: scale(1.5) rotate(-6deg); }
+  to { opacity: 1; transform: scale(1) rotate(-1.5deg); }
+}
+
+.confetti {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  background: var(--c);
+  opacity: 0;
+  animation: burst 1.5s cubic-bezier(0.15, 0.7, 0.3, 1) forwards;
+}
+
+.confetti.dot { border-radius: 50%; }
+.confetti.bar { width: 5px; height: 14px; border-radius: 3px; }
+.confetti.ring { background: none; border: 3px solid var(--c); border-radius: 50%; width: 13px; height: 13px; }
+.confetti.note { background: none; width: 18px; height: 18px; }
+.confetti.note svg { width: 100%; height: 100%; fill: var(--c); }
+
+@keyframes burst {
+  0% { opacity: 1; transform: translate(-50%, -50%) scale(0.4); }
+  70% { opacity: 1; }
+  100% {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) rotate(var(--spin)) scale(1);
+  }
+}
+
+#celebration.leaving { opacity: 0; transition: opacity 0.4s; }
+
+/* ── keyboard shortcuts, in Settings ── */
+#shortcut-list { display: grid; gap: 2px; }
+
+#shortcut-list > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+
+#shortcut-list > div:last-child { border-bottom: none; }
+#shortcut-list dd { color: var(--text-2); }
+
+kbd {
+  display: inline-block;
+  min-width: 26px;
+  padding: 3px 8px;
+  border-radius: 7px;
+  background: var(--ink-3);
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  font: 600 12px var(--font-sans);
+  text-align: center;
+  color: var(--text);
+}
+
+@media (max-width: 760px) {
+  .tile-grid { gap: 8px; }
+  .lang-tile { min-height: 92px; padding: 10px 8px; }
+  .lang-tile-title { font-size: 15px; }
+  .lang-tile-native { font-size: 11.5px; }
+  #timing-nudge { bottom: 8px; }
+  .stamp { min-width: 104px; padding: 12px 12px 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view.page:not([hidden]), .skeleton, .celebration-card, .confetti { animation: none; }
+  .confetti { display: none; }
+}

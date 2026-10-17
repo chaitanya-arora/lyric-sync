@@ -248,6 +248,8 @@ function hideWelcomeScreen(callback) {
 // Loading, "no lyrics" and "already in English" share one card. `notes` puts
 // the Figma's scattered music notes behind it; `action` adds a button below.
 function showContent(type, options = {}) {
+  // the timing nudge only means something for lyrics that follow the song
+  document.getElementById('timing-nudge').hidden = !(type === 'lyrics' && currentLyricsSynced)
   if (type === 'lyrics') {
     stateScreen.style.display = 'none'
     lyricsContainer.style.display = 'block'
@@ -301,7 +303,43 @@ function hasTimings(lyrics) {
 
 function syncActiveLine(ms) {
   if (!currentLyricsSynced || currentLyrics.length === 0) return
-  updateActiveLine(getCurrentLineIndex(currentLyrics, ms + SYNC_OFFSET_BASE + dynamicOffset))
+  updateActiveLine(getCurrentLineIndex(currentLyrics, ms + SYNC_OFFSET_BASE + dynamicOffset + timingNudge))
+}
+
+// ── lyric timing nudge ──
+// LRCLIB's timings are sometimes a beat early or late for a recording. A
+// nudge is kept per song, in this browser, so the fix sticks next time.
+const NUDGE_STEP_MS = 250
+const NUDGE_LIMIT_MS = 5000
+let timingNudge = 0     // ms; positive shows lines sooner
+
+function nudgeKey(trackId) { return `lyricsync:nudge:${trackId}` }
+
+function loadTimingNudge(trackId) {
+  timingNudge = 0
+  try { timingNudge = Number(localStorage.getItem(nudgeKey(trackId))) || 0 } catch (e) { /* storage off */ }
+  paintTimingNudge()
+}
+
+function nudgeTiming(direction) {
+  if (!currentTrackId || !currentLyricsSynced) return
+  // "later" means the lines arrive later, so the lead shrinks
+  timingNudge = Math.max(-NUDGE_LIMIT_MS, Math.min(NUDGE_LIMIT_MS, timingNudge - direction * NUDGE_STEP_MS))
+  try {
+    if (timingNudge) localStorage.setItem(nudgeKey(currentTrackId), String(timingNudge))
+    else localStorage.removeItem(nudgeKey(currentTrackId))
+  } catch (e) { /* storage off: the nudge lasts for this visit */ }
+  paintTimingNudge()
+  currentLineIndex = -1
+  syncActiveLine(isPlaying ? progressMs + (Date.now() - lastServerSync) : progressMs)
+}
+
+function paintTimingNudge() {
+  const label = document.getElementById('timing-value')
+  const seconds = String(Number(Math.abs(timingNudge / 1000).toFixed(2)))
+  label.textContent = !timingNudge ? 'Lyrics in time'
+    : timingNudge > 0 ? `${seconds}s earlier` : `${seconds}s later`
+  document.getElementById('timing-nudge').classList.toggle('nudged', Boolean(timingNudge))
 }
 
 // The Figma writes languages as three letters: "FRE → ENG".
@@ -492,6 +530,7 @@ function updatePlayPauseIcon(playing) {
 
 function updateTopBar(data) {
   paintFavouriteButton(data.track_id)
+  document.title = `${data.song} · ${data.artist} — LyricSync`
   songName.textContent = data.song
   artistName.textContent = data.artist
   if (data.album_art && albumArt.getAttribute('src') !== data.album_art) {
@@ -1248,20 +1287,19 @@ const COUNTRIES = {
   za: ['South Africa', 'EN', -30.6, 22.9]
 }
 
-// The language tiles: each opens one country's chart.
+// The language tiles: each opens one country's chart. Nine, as in the
+// Figma's Browse All — the most common, with search for everything else.
+// `native` is the language's own name, in its own script.
 const LANGUAGE_TILES = [
-  { country: 'fr', title: 'French', lang: 'FR' },
-  { country: 'kr', title: 'K-Pop', lang: 'KO' },
-  { country: 'in', title: 'Bollywood & Punjabi', lang: 'HI' },
-  { country: 'mx', title: 'Latin', lang: 'ES' },
-  { country: 'ng', title: 'Afrobeats', lang: 'EN', swatch: 'seafoam' },
-  { country: 'jp', title: 'J-Pop', lang: 'JA' },
-  { country: 'tw', title: 'C-Pop', lang: 'ZH' },
-  { country: 'eg', title: 'Arabic Pop', lang: 'AR' },
-  { country: 'it', title: 'Italian', lang: 'IT' },
-  { country: 'br', title: 'Brazilian', lang: 'PT' },
-  { country: 'tr', title: 'Turkish', lang: 'TR' },
-  { country: 'id', title: 'Indonesian', lang: 'ID' }
+  { country: 'fr', title: 'French', lang: 'FR', native: 'Français' },
+  { country: 'kr', title: 'K-Pop', lang: 'KO', native: '한국어' },
+  { country: 'in', title: 'Bollywood', lang: 'HI', native: 'हिन्दी' },
+  { country: 'mx', title: 'Latin', lang: 'ES', native: 'Español' },
+  { country: 'ng', title: 'Afrobeats', lang: 'EN', swatch: 'seafoam', native: 'Naijá' },
+  { country: 'jp', title: 'J-Pop', lang: 'JA', native: '日本語' },
+  { country: 'tw', title: 'C-Pop', lang: 'ZH', native: '中文' },
+  { country: 'eg', title: 'Arabic Pop', lang: 'AR', native: 'العربية' },
+  { country: 'it', title: 'Italian', lang: 'IT', native: 'Italiano' }
 ]
 
 // Which chart Top Picks uses for each language you listen to.
@@ -1364,16 +1402,53 @@ function songRow(song, index, onPlay) {
   return row
 }
 
-function listMessage(list, text) {
+const RETRY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>'
+
+// A quiet note in place of a list: why it's empty, and a way to try again.
+function listMessage(list, text, { retry } = {}) {
   list.innerHTML = ''
-  const message = document.createElement('p')
+  const message = document.createElement('div')
   message.className = 'list-message'
-  message.textContent = text
+  const words = document.createElement('p')
+  words.textContent = text
+  message.appendChild(words)
+  if (retry) {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'btn-quiet'
+    button.innerHTML = `${RETRY_ICON}<span>Try again</span>`
+    button.addEventListener('click', retry)
+    message.appendChild(button)
+  }
   list.appendChild(message)
 }
 
+// Grey placeholders the shape of what's coming, while it loads.
+function skeletonRows(list, count) {
+  list.innerHTML = ''
+  for (let i = 0; i < count; i++) {
+    const row = document.createElement('div')
+    row.className = 'skeleton-row'
+    row.setAttribute('aria-hidden', 'true')
+    row.innerHTML = '<span class="skeleton sk-art"></span><span class="sk-lines"><span class="skeleton sk-line"></span><span class="skeleton sk-line short"></span></span>'
+    row.style.animationDelay = `${i * 60}ms`
+    list.appendChild(row)
+  }
+}
+
+function skeletonCards(row, count) {
+  row.innerHTML = ''
+  for (let i = 0; i < count; i++) {
+    const card = document.createElement('div')
+    card.className = 'skeleton-card'
+    card.setAttribute('aria-hidden', 'true')
+    card.innerHTML = '<span class="skeleton sk-cover"></span><span class="skeleton sk-line"></span><span class="skeleton sk-line short"></span>'
+    row.appendChild(card)
+  }
+}
+
 async function renderChartInto(list, country, limit) {
-  listMessage(list, 'Loading…')
+  skeletonRows(list, Math.min(limit, 8))
   try {
     const chart = await fetchChart(country)
     list.innerHTML = ''
@@ -1383,7 +1458,9 @@ async function renderChartInto(list, country, limit) {
     if (!chart.songs.length) listMessage(list, 'No chart for here right now.')
     return chart
   } catch (e) {
-    listMessage(list, "Couldn't load this chart — try again in a moment.")
+    listMessage(list, "Couldn't reach the charts just now.", {
+      retry: () => renderChartInto(list, country, limit)
+    })
     return null
   }
 }
@@ -1396,14 +1473,15 @@ function languageTile(spec) {
   const tile = document.createElement('a')
   tile.className = 'lang-tile'
   tile.href = `#/chart/${spec.country}`
+  tile.title = `Top songs in ${COUNTRIES[spec.country][0]}`
   paintTile(tile, spec)
   const title = document.createElement('span')
   title.className = 'lang-tile-title'
   title.textContent = spec.title
-  const sub = document.createElement('span')
-  sub.className = 'lang-tile-sub'
-  sub.append(flagIcon(spec.country), `Top songs in ${COUNTRIES[spec.country][0]}`)
-  tile.append(title, sub)
+  const native = document.createElement('span')
+  native.className = 'lang-tile-native'
+  native.textContent = spec.native
+  tile.append(title, native)
   return tile
 }
 
@@ -1421,22 +1499,62 @@ async function loadChartPage(country) {
 // ── home ──
 let homeName = null
 
-function greeting() {
+// Home says hello in the language you listen to most, with the English
+// underneath. [morning, afternoon, evening]
+const GREETINGS = {
+  FR: ['Bonjour', 'Bon après-midi', 'Bonsoir'],
+  ES: ['Buenos días', 'Buenas tardes', 'Buenas noches'],
+  IT: ['Buongiorno', 'Buon pomeriggio', 'Buonasera'],
+  PT: ['Bom dia', 'Boa tarde', 'Boa noite'],
+  DE: ['Guten Morgen', 'Guten Tag', 'Guten Abend'],
+  NL: ['Goedemorgen', 'Goedemiddag', 'Goedenavond'],
+  SV: ['God morgon', 'God eftermiddag', 'God kväll'],
+  PL: ['Dzień dobry', 'Dzień dobry', 'Dobry wieczór'],
+  TR: ['Günaydın', 'İyi günler', 'İyi akşamlar'],
+  RU: ['Доброе утро', 'Добрый день', 'Добрый вечер'],
+  EL: ['Καλημέρα', 'Καλησπέρα', 'Καλησπέρα'],
+  HI: ['सुप्रभात', 'नमस्ते', 'शुभ संध्या'],
+  PA: ['ਸਤ ਸ੍ਰੀ ਅਕਾਲ', 'ਸਤ ਸ੍ਰੀ ਅਕਾਲ', 'ਸਤ ਸ੍ਰੀ ਅਕਾਲ'],
+  UR: ['صبح بخیر', 'السلام علیکم', 'شام بخیر'],
+  AR: ['صباح الخير', 'مساء الخير', 'مساء الخير'],
+  KO: ['좋은 아침이에요', '안녕하세요', '좋은 저녁이에요'],
+  JA: ['おはようございます', 'こんにちは', 'こんばんは'],
+  ZH: ['早上好', '下午好', '晚上好'],
+  ID: ['Selamat pagi', 'Selamat siang', 'Selamat malam'],
+  TH: ['สวัสดีตอนเช้า', 'สวัสดีตอนบ่าย', 'สวัสดีตอนเย็น'],
+  VI: ['Chào buổi sáng', 'Chào buổi chiều', 'Chào buổi tối']
+}
+const DAY_PARTS = ['morning', 'afternoon', 'evening']
+let homeLanguage = null     // the language you listen to most
+
+function paintGreeting() {
   const hour = new Date().getHours()
-  const part = hour < 5 ? 'evening' : hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening'
-  return homeName ? `Good ${part}, ${homeName}` : `Good ${part}`
+  const part = hour >= 5 && hour < 12 ? 0 : hour >= 12 && hour < 18 ? 1 : 2
+  const english = `Good ${DAY_PARTS[part]}`
+  const local = GREETINGS[homeLanguage]
+  const title = document.getElementById('home-greeting')
+  const subtitle = document.getElementById('home-subtitle')
+
+  // <bdi> keeps an Arabic or Urdu greeting from swapping places with the name
+  const phrase = document.createElement('bdi')
+  phrase.textContent = local ? local[part] : english
+  if (local) phrase.lang = homeLanguage.toLowerCase()
+  title.replaceChildren(phrase, homeName ? `, ${homeName}` : '')
+  subtitle.textContent = local
+    ? `${english}, in ${langName(homeLanguage)} — your most-played language`
+    : 'Every language has a song.'
 }
 
 let homeTilesBuilt = false
 let picksLanguage = null
 
 async function loadHome() {
-  document.getElementById('home-greeting').textContent = greeting()
+  paintGreeting()
   if (!homeName) {
     fetch('/me').then(r => r.ok ? r.json() : null).then(me => {
       if (me && me.display_name) {
         homeName = me.display_name.split(' ')[0]
-        document.getElementById('home-greeting').textContent = greeting()
+        paintGreeting()
       }
     }).catch(() => {})
   }
@@ -1453,14 +1571,18 @@ async function loadHome() {
     const res = await fetch('/history?limit=6')
     if (res.ok) {
       const data = await res.json()
-      languages = (data.languages || []).map(l => l.lang)
+      const counts = (data.languages || []).filter(l => l.lang !== 'EN')
+      languages = counts.map(l => l.lang)
+      homeLanguage = languages.find(lang => GREETINGS[lang]) || null
+      paintGreeting()
       const shelf = document.getElementById('home-recent-shelf')
       const grid = document.getElementById('home-recent')
       shelf.hidden = !data.tracks.length
       grid.innerHTML = ''
       data.tracks.forEach(track => grid.appendChild(jumpCard(track)))
+      renderPassport(counts)
     }
-  } catch (e) { /* the shelf stays hidden */ }
+  } catch (e) { /* the shelves stay hidden */ }
 
   // top picks: the languages you actually listen to, or a few to start with
   const picks = [...new Set([...languages, ...DEFAULT_PICKS])]
@@ -1508,10 +1630,11 @@ function jumpCard(track) {
 async function renderPicks() {
   const row = document.getElementById('home-picks')
   const country = LANGUAGE_COUNTRY[picksLanguage]
-  row.innerHTML = ''
+  skeletonCards(row, 6)
   try {
     const chart = await fetchChart(country)
     if (LANGUAGE_COUNTRY[picksLanguage] !== country) return   // chip changed meanwhile
+    row.innerHTML = ''
     chart.songs.slice(0, 10).forEach(song => {
       const card = document.createElement('button')
       card.type = 'button'
@@ -1533,7 +1656,8 @@ async function renderPicks() {
       row.appendChild(card)
     })
   } catch (e) {
-    listMessage(row, "Couldn't load picks — try again in a moment.")
+    if (LANGUAGE_COUNTRY[picksLanguage] !== country) return
+    listMessage(row, "Couldn't load these picks.", { retry: renderPicks })
   }
 }
 
@@ -2547,6 +2671,8 @@ function signedOut() {
   currentLineIndex = -1
   lastKnownData = null
   isPlaying = false
+  knownLanguages = null
+  document.title = 'LyricSync'
   showWelcomeScreen()
 }
 
@@ -2709,6 +2835,7 @@ async function fetchNowPlaying() {
       accessProblem = null
       isLoggedIn = true
       loadPrefs()
+      loadKnownLanguages()
       loadFavourites()
       startWebPlayer()
       loadLibrary()
@@ -2822,6 +2949,7 @@ async function fetchNowPlaying() {
     currentContentState = 'loading'
     langBadge.style.display = 'none'
     dynamicOffset = 0           // reset drift for new track
+    loadTimingNudge(data.track_id)
     prefetchNextTrack()         // immediately prefetch next-in-queue in case of skip
     refreshContextSoon()        // don't make the sidebar wait for the 10s poll
 
@@ -2893,7 +3021,10 @@ async function fetchNowPlaying() {
     }
 
     renderLyrics(currentLyrics)
-    if (translationEnabled) recordListen(data, lang)
+    if (translationEnabled) {
+      recordListen(data, lang)
+      celebrateIfNew(lang)
+    }
     currentContentState = 'lyrics'
     showContent('lyrics')
 
@@ -2931,6 +3062,160 @@ function tickProgress() {
 
   syncActiveLine(capped)
 }
+
+// ─────────────────────────────────────────
+//  PASSPORT, FIRST-SONG CELEBRATIONS, SHORTCUTS
+// ─────────────────────────────────────────
+
+// Each language's name for itself, for passport stamps and celebrations.
+const LANG_NATIVE = {
+  AR: 'العربية', BN: 'বাংলা', DE: 'Deutsch', EL: 'Ελληνικά', EN: 'English', ES: 'Español',
+  FA: 'فارسی', FR: 'Français', HE: 'עברית', HI: 'हिन्दी', ID: 'Bahasa Indonesia',
+  IT: 'Italiano', JA: '日本語', KO: '한국어', NL: 'Nederlands', PA: 'ਪੰਜਾਬੀ', PL: 'Polski',
+  PT: 'Português', RU: 'Русский', SV: 'Svenska', TA: 'தமிழ்', TE: 'తెలుగు', TH: 'ไทย',
+  TR: 'Türkçe', UK: 'Українська', UR: 'اردو', VI: 'Tiếng Việt', ZH: '中文'
+}
+
+function nativeName(code) {
+  const base = (code || '').split('-')[0]
+  return LANG_NATIVE[base] || langName(base)
+}
+
+// The passport: a stamp for every language you've listened in, most played
+// first. A stamp opens Recently Translated filtered to that language.
+function renderPassport(counts) {
+  const shelf = document.getElementById('passport-shelf')
+  const passport = document.getElementById('passport')
+  shelf.hidden = !counts.length
+  passport.innerHTML = ''
+  document.getElementById('passport-count').textContent =
+    counts.length === 1 ? '1 language' : `${counts.length} languages`
+  counts.forEach(({ lang, count }, i) => {
+    const stamp = document.createElement('a')
+    stamp.className = 'stamp'
+    stamp.href = '#/recent'
+    stamp.style.setProperty('--tilt', `${[-3, 2, -1.5, 3, -2.5, 1][i % 6]}deg`)
+    paintColor(stamp, langColor(lang))
+    const native = document.createElement('bdi')
+    native.className = 'stamp-native'
+    native.lang = lang.toLowerCase()
+    native.textContent = nativeName(lang)
+    const name = document.createElement('span')
+    name.className = 'stamp-name'
+    name.textContent = langName(lang)
+    const songs = document.createElement('span')
+    songs.className = 'stamp-count'
+    songs.textContent = count === 1 ? '1 song' : `${count} songs`
+    stamp.append(native, name, songs)
+    stamp.addEventListener('click', () => { recentFilter = lang })
+    passport.appendChild(stamp)
+  })
+}
+
+// The first time you hear a language, LyricSync makes a small fuss.
+let knownLanguages = null   // languages already in your history
+
+async function loadKnownLanguages() {
+  try {
+    const res = await fetch('/history?limit=1')
+    if (!res.ok) return
+    const data = await res.json()
+    knownLanguages = new Set((data.languages || []).map(l => l.lang))
+  } catch (e) { /* no fuss this visit */ }
+}
+
+function celebrateIfNew(lang) {
+  if (!lang || lang === 'EN' || !knownLanguages || knownLanguages.has(lang)) return
+  knownLanguages.add(lang)
+  celebrate(lang)
+}
+
+const CONFETTI_SHAPES = ['dot', 'bar', 'ring', 'note']
+const NOTE_PATH = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v10.6A4 4 0 1 0 14 17V7h4V3z"/></svg>'
+
+function celebrate(lang) {
+  document.getElementById('celebration')?.remove()
+  const color = langColor(lang)
+  const holder = document.createElement('div')
+  holder.id = 'celebration'
+  holder.setAttribute('role', 'status')
+
+  const card = document.createElement('div')
+  card.className = 'celebration-card'
+  paintColor(card, color)
+  const eyebrow = document.createElement('span')
+  eyebrow.className = 'celebration-eyebrow'
+  eyebrow.textContent = 'Your first song in'
+  const native = document.createElement('bdi')
+  native.className = 'celebration-native'
+  native.lang = lang.toLowerCase()
+  native.textContent = nativeName(lang)
+  const note = document.createElement('span')
+  note.className = 'celebration-note'
+  note.textContent = `${langName(lang)} — stamped in your passport`
+  card.append(eyebrow, native, note)
+  holder.appendChild(card)
+
+  // a burst of the palette, not just this language's colour
+  const colours = Object.values(SWATCHES)
+  for (let i = 0; i < 34; i++) {
+    const bit = document.createElement('span')
+    const shape = CONFETTI_SHAPES[i % CONFETTI_SHAPES.length]
+    bit.className = `confetti ${shape}`
+    if (shape === 'note') bit.innerHTML = NOTE_PATH
+    const angle = (i / 34) * Math.PI * 2 + Math.random() * 0.4
+    const distance = 140 + Math.random() * 160
+    bit.style.setProperty('--dx', `${Math.cos(angle) * distance}px`)
+    bit.style.setProperty('--dy', `${Math.sin(angle) * distance * 0.7 + 60}px`)
+    bit.style.setProperty('--spin', `${Math.round(Math.random() * 540 - 270)}deg`)
+    bit.style.setProperty('--c', colours[i % colours.length])
+    bit.style.animationDelay = `${Math.random() * 120}ms`
+    holder.appendChild(bit)
+  }
+
+  const dismiss = () => {
+    holder.classList.add('leaving')
+    setTimeout(() => holder.remove(), 400)
+  }
+  holder.addEventListener('click', dismiss)
+  setTimeout(dismiss, 5200)
+  document.body.appendChild(holder)
+}
+
+// ── keyboard shortcuts ──
+// Only when you're not typing, and never over the browser's own shortcuts.
+document.addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return
+  const target = e.target instanceof Element ? e.target : document.body
+  if (target.closest('input, textarea, select, [contenteditable="true"]')) return
+  if (!isLoggedIn) return
+
+  // space on a focused button presses that button, as it should
+  const onControl = target.closest('button, a, [role="switch"]')
+  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key
+
+  if (key === ' ' && !onControl) {
+    e.preventDefault()
+    togglePlayPause()
+  } else if (key === 'ArrowRight' && !target.closest('#globe')) {
+    e.preventDefault()
+    sendPlayback('next')
+  } else if (key === 'ArrowLeft' && !target.closest('#globe')) {
+    e.preventDefault()
+    sendPlayback('previous')
+  } else if (key === 'l' && currentTrackId) {
+    toggleFavourite()
+  } else if (key === 't') {
+    toggleTranslation()
+    showToast(translationEnabled ? 'Translations on' : 'Translations off', 1600)
+  } else if (key === '[' || key === ']') {
+    nudgeTiming(key === ']' ? 1 : -1)
+  } else if (key === '/') {
+    e.preventDefault()
+    if (location.hash === '#/search') searchInput.focus()
+    else location.hash = '#/search'
+  }
+})
 
 // ─────────────────────────────────────────
 //  KICK OFF

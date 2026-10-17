@@ -1,10 +1,17 @@
 /* ─────────────────────────────────────────
    LYRICSYNC — DESIGN TOKENS
 
-   Two voices: what's sung is white and bold, what it means is green and
-   lighter. Every language has its own hue (--lang-h, set from script), and
-   the current song's artwork tints the room (--ambient).
+   Every language has its own colour, from the nine Browse All colours in
+   the Figma file: a saturated core (--lang-core) and a bright pastel edge
+   (--lang-soft). The app's accent (--accent) takes on the colour of the
+   language that's playing, so it changes as you travel. Headings are set
+   in Righteous, everything you read in Inter.
 ───────────────────────────────────────── */
+
+/* registered so the accent can fade from one language to the next */
+@property --accent { syntax: '<color>'; inherits: true; initial-value: #8a4fe0; }
+@property --accent-soft { syntax: '<color>'; inherits: true; initial-value: #c2aae0; }
+
 :root {
   color-scheme: dark;
 
@@ -22,12 +29,16 @@
   --text-3: #7a776f;
   --text-4: #4f4d48;
 
-  /* Spotify green: the brand colour, and the colour of meaning */
-  --green: #1db954;
-  --green-hover: #1ed760;
-  --green-ink: #000000;          /* text on green, as Spotify sets it */
-  --green-soft: rgba(29, 185, 84, 0.14);
-  --green-line: rgba(29, 185, 84, 0.35);
+  /* the accent: the playing language's colour (violet when none) */
+  --accent: #8a4fe0;
+  --accent-soft: #c2aae0;
+  --accent-ink: #1b1024;          /* text on the pastel accent */
+  --accent-wash: color-mix(in srgb, var(--accent) 16%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent-soft) 38%, transparent);
+  --accent-hover: color-mix(in srgb, var(--accent-soft) 82%, white);
+
+  /* only for Connect with Spotify */
+  --spotify-green: #1db954;
 
   --danger: #ff8473;
   --danger-soft: rgba(255, 132, 115, 0.12);
@@ -36,6 +47,7 @@
   --ambient: 29 185 84;
 
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Righteous', 'Inter', sans-serif;
 
   --radius-xl: 22px;
   --radius-lg: 18px;
@@ -47,6 +59,8 @@
   --gap: 10px;
 
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  transition: --accent 0.9s ease, --accent-soft 0.9s ease;
 }
 
 /* ── reset ── */
@@ -71,12 +85,12 @@ body {
 }
 
 :focus-visible {
-  outline: 2px solid var(--green);
+  outline: 2px solid var(--accent-soft);
   outline-offset: 2px;
   border-radius: 6px;
 }
 
-::selection { background: var(--green-soft); }
+::selection { background: var(--accent-wash); }
 
 /* ─────────────────────────────────────────
    SHELL
@@ -115,21 +129,28 @@ body {
 }
 
 #brand {
+  font-family: var(--font-display);
+  font-weight: 400;
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 2px 10px 14px;
   font-size: 17px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
   text-decoration: none;
 }
 
+/* the mark: a lyric line and its translation, on all nine colours */
 .brand-mark {
   width: 28px;
   height: 28px;
-  color: var(--green);
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  background: conic-gradient(from 200deg, #e0524d, #f07a3a, #f4a93a, #8cc832, #3faea5,
+    #4a72e0, #8a4fe0, #c058dd, #e2528f, #e0524d);
 }
+
+.brand-mark svg { width: 70%; height: 70%; }
 
 .nav-link {
   display: flex;
@@ -147,7 +168,7 @@ body {
 .nav-link svg { width: 20px; height: 20px; opacity: 0.85; }
 .nav-link:hover { background: var(--ink-2); color: var(--text); }
 .nav-link.active { background: var(--ink-3); color: var(--text); }
-.nav-link.active svg { color: var(--green); opacity: 1; }
+.nav-link.active svg { color: var(--accent-soft); opacity: 1; }
 
 /* ── library ── */
 #library-card {
@@ -169,8 +190,9 @@ body {
 #library-header svg { width: 20px; height: 20px; }
 
 #library-title {
+  font-family: var(--font-display);
+  font-weight: 400;
   font-size: 15px;
-  font-weight: 600;
   color: var(--text);
 }
 
@@ -195,9 +217,9 @@ body {
 .chip:hover { color: var(--text); background: var(--ink-4); }
 
 .chip[aria-pressed="true"] {
-  background: var(--green-soft);
-  border-color: var(--green-line);
-  color: var(--green);
+  background: var(--accent-wash);
+  border-color: var(--accent-line);
+  color: var(--accent-soft);
 }
 
 #library-list {
@@ -266,8 +288,8 @@ body {
 .library-message button {
   display: inline-block;
   margin-top: 10px;
-  background: var(--green);
-  color: var(--green-ink);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
   border: none;
   border-radius: 999px;
   padding: 6px 14px;
@@ -284,10 +306,10 @@ body {
   justify-content: center;
   gap: 8px;
   padding: 11px 14px;
-  border: 1px solid var(--green-line);
+  border: 1px solid var(--accent-line);
   border-radius: var(--radius);
-  background: var(--green-soft);
-  color: var(--green);
+  background: var(--accent-wash);
+  color: var(--accent-soft);
   font-size: 13px;
   font-weight: 600;
   flex-shrink: 0;
@@ -295,7 +317,7 @@ body {
 }
 
 #sidebar-settings-btn svg { width: 17px; height: 17px; }
-#sidebar-settings-btn:hover { background: rgba(29, 185, 84, 0.22); }
+#sidebar-settings-btn:hover { background: color-mix(in srgb, var(--accent-soft) 22%, transparent); }
 
 /* ─────────────────────────────────────────
    MAIN CARD
@@ -342,10 +364,10 @@ body {
 }
 
 .page-title {
-  font-weight: 700;
+  font-family: var(--font-display);
+  font-weight: 400;
   font-size: clamp(28px, 2.8vw, 40px);
   line-height: 1.1;
-  letter-spacing: -0.02em;
 }
 
 .page-subtitle {
@@ -394,9 +416,9 @@ body {
 #track-info { flex: 1; min-width: 0; }
 
 #song-name {
+  font-family: var(--font-display);
+  font-weight: 400;
   font-size: clamp(20px, 1.8vw, 26px);
-  font-weight: 600;
-  letter-spacing: -0.02em;
   line-height: 1.15;
   white-space: nowrap;
   overflow: hidden;
@@ -415,7 +437,8 @@ body {
 /* "FRE → ENG" — every language has its own hue */
 .lang-pill,
 #lang-badge {
-  --lang-h: 200;
+  --lang-core: #8a4fe0;
+  --lang-soft: #c2aae0;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -425,9 +448,9 @@ body {
   text-transform: uppercase;
   padding: 4px 9px;
   border-radius: 999px;
-  color: oklch(0.86 0.1 var(--lang-h));
-  background: oklch(0.8 0.1 var(--lang-h) / 0.13);
-  border: 1px solid oklch(0.8 0.1 var(--lang-h) / 0.25);
+  color: var(--lang-soft);
+  background: color-mix(in srgb, var(--lang-core) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--lang-soft) 30%, transparent);
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -453,7 +476,7 @@ body {
   flex-shrink: 0;
 }
 
-.toggle.on { background: var(--green); }
+.toggle.on { background: var(--accent-soft); }
 
 .toggle-thumb {
   position: absolute;
@@ -467,7 +490,7 @@ body {
   transition: transform 0.25s var(--ease), background 0.2s;
 }
 
-.toggle.on .toggle-thumb { transform: translateX(15px); background: var(--green-ink); }
+.toggle.on .toggle-thumb { transform: translateX(15px); background: var(--accent-ink); }
 
 /* ── lyrics: two voices ── */
 #lyrics-container {
@@ -522,7 +545,7 @@ body {
   font-weight: 400;
   line-height: 1.4;
   letter-spacing: 0.005em;
-  color: rgb(29 185 84 / 0.85);   /* softened, so it reads as a caption */
+  color: var(--accent-soft);   /* the language's colour, softly */
   margin-top: 3px;
   overflow-wrap: anywhere;
 }
@@ -532,8 +555,9 @@ body {
 /* the line being sung sits in a grey box with a green bar, as in the Figma */
 .lyric-line.active {
   opacity: 1;
-  background: rgba(255, 255, 255, 0.08);
-  border-left-color: var(--green);
+  /* the box takes the language's colour, faintly */
+  background: color-mix(in srgb, var(--accent) 15%, rgba(255, 255, 255, 0.05));
+  border-left-color: var(--accent);
 }
 
 .lyric-line.active .lyric-original { font-size: clamp(19px, 1.7vw, 26px); }
@@ -593,8 +617,8 @@ body {
   justify-content: center;
   gap: 8px;
   padding: 11px 22px;
-  background: var(--green);
-  color: var(--green-ink);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
   border: none;
   border-radius: 999px;
   font-size: 15px;
@@ -604,9 +628,9 @@ body {
 }
 
 .btn-primary:hover:not(:disabled),
-#state-action:hover:not(:disabled) { background: var(--green-hover); transform: translateY(-1px); }
+#state-action:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); }
 
-#state-action:disabled { background: var(--green-soft); color: var(--green); cursor: default; }
+#state-action:disabled { background: var(--accent-wash); color: var(--accent-soft); cursor: default; }
 
 /* ── song grids (Recently Translated) ── */
 .filter-chips {
@@ -627,9 +651,9 @@ body {
 
 /* a language chip takes its language's colour when chosen */
 .lang-chip[aria-pressed="true"] {
-  color: oklch(0.86 0.1 var(--lang-h, 160));
-  background: oklch(0.8 0.1 var(--lang-h, 160) / 0.14);
-  border-color: oklch(0.8 0.1 var(--lang-h, 160) / 0.35);
+  color: var(--lang-soft, var(--accent-soft));
+  background: color-mix(in srgb, var(--lang-core, var(--accent)) 22%, transparent);
+  border-color: color-mix(in srgb, var(--lang-soft, var(--accent-soft)) 40%, transparent);
 }
 
 .lang-chip[aria-pressed="true"] .chip-count { color: inherit; opacity: 0.7; }
@@ -661,7 +685,8 @@ body {
 }
 
 .song-card-art {
-  --lang-h: 160;
+  --lang-core: #8a4fe0;
+  --lang-soft: #c2aae0;
   position: relative;
   width: 100%;
   aspect-ratio: 1;
@@ -678,8 +703,8 @@ body {
   display: grid;
   place-items: center;
   font-size: 44px;
-  color: oklch(0.86 0.1 var(--lang-h));
-  background: oklch(0.56 0.17 var(--lang-h));
+  color: #fff;
+  background: radial-gradient(62% 75% at 50% 50%, var(--lang-core), var(--lang-soft));
 }
 
 .song-card-play {
@@ -691,8 +716,8 @@ body {
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: var(--green);
-  color: var(--green-ink);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
   opacity: 0;
   transform: translateY(6px);
@@ -714,7 +739,7 @@ body {
   text-overflow: ellipsis;
 }
 
-.song-card.playing .song-card-title { color: var(--green); }
+.song-card.playing .song-card-title { color: var(--accent-soft); }
 
 .song-card-artist {
   max-width: 100%;
@@ -738,8 +763,9 @@ body {
 }
 
 .grid-empty-title {
+  font-family: var(--font-display);
+  font-weight: 400;
   font-size: 20px;
-  font-weight: 600;
 }
 
 .grid-empty-sub {
@@ -756,7 +782,7 @@ body {
   transition: transform 0.3s var(--ease);
 }
 
-#fav-btn[aria-pressed="true"] { color: #ff8fa3; border-color: rgba(255, 143, 163, 0.35); }
+#fav-btn[aria-pressed="true"] { color: var(--accent-soft); border-color: rgba(255, 143, 163, 0.35); }
 #fav-btn[aria-pressed="true"] svg { fill: currentColor; transform: scale(1.08); }
 
 #fav-hero {
@@ -776,7 +802,7 @@ body {
   color: #fff;
   background:
     radial-gradient(90% 90% at 25% 15%, #ffb3c1, transparent 60%),
-    radial-gradient(90% 90% at 85% 90%, var(--green), transparent 60%),
+    radial-gradient(90% 90% at 85% 90%, var(--accent-soft), transparent 60%),
     #d9667f;
   box-shadow: 0 20px 50px rgba(217, 102, 127, 0.28);
 }
@@ -830,7 +856,7 @@ body {
 }
 
 .fav-row.playing .fav-num,
-.fav-row.playing .fav-song { color: var(--green); }
+.fav-row.playing .fav-song { color: var(--accent-soft); }
 
 .fav-title {
   display: flex;
@@ -884,7 +910,7 @@ body {
   border: none;
   border-radius: 50%;
   background: none;
-  color: #ff8fa3;
+  color: var(--accent-soft);
   transition: background 0.15s, color 0.15s;
 }
 
@@ -906,8 +932,8 @@ body {
 .shelf-head h2,
 .shelf-title {
   font-size: 19px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-family: var(--font-display);
+  font-weight: 400;
 }
 
 .shelf-title { margin-bottom: 14px; }
@@ -985,7 +1011,8 @@ body {
 }
 
 .lang-tile {
-  --lang-h: 160;
+  --lang-core: #8a4fe0;
+  --lang-soft: #c2aae0;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -995,19 +1022,21 @@ body {
   border-radius: var(--radius-lg);
   text-decoration: none;
   overflow: hidden;
-  background: oklch(0.6 0.19 var(--lang-h));
+  background: radial-gradient(62% 75% at 50% 50%, var(--lang-core), var(--lang-soft));
+  color: #fff;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.18);
   transition: transform 0.25s var(--ease), box-shadow 0.25s;
 }
 
 .lang-tile:hover {
   transform: translateY(-2px);
-  background: oklch(0.65 0.2 var(--lang-h));
+  filter: saturate(1.12) brightness(1.04);
 }
 
 .lang-tile-title {
+  font-family: var(--font-display);
+  font-weight: 400;
   font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
 }
 
 .lang-tile-sub {
@@ -1106,8 +1135,8 @@ body {
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: var(--green);
-  color: var(--green-ink);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
   opacity: 0;
   transition: opacity 0.15s;
 }
@@ -1154,13 +1183,14 @@ body {
 }
 
 #search-input::placeholder { color: var(--text-3); }
-#search-input:focus { border-color: var(--green-line); background: var(--ink-3); }
+#search-input:focus { border-color: var(--accent-line); background: var(--ink-3); }
 
 #search-results { margin-bottom: 30px; }
 
 /* ── chart page ── */
 #chart-hero {
-  --lang-h: 160;
+  --lang-core: #8a4fe0;
+  --lang-soft: #c2aae0;
   display: flex;
   align-items: flex-end;
   gap: clamp(18px, 2.4vw, 30px);
@@ -1175,7 +1205,7 @@ body {
   place-items: center;
   border-radius: var(--radius-lg);
   font-size: clamp(48px, 5vw, 72px);
-  background: oklch(0.6 0.19 var(--lang-h));
+  background: radial-gradient(62% 75% at 50% 50%, var(--lang-core), var(--lang-soft));
 }
 
 /* ── explore ── */
@@ -1190,7 +1220,8 @@ body {
 
 /* flat map pins, tip on the country, in its language's colour */
 .globe-pin {
-  --lang-h: 160;
+  --lang-core: #8a4fe0;
+  --lang-soft: #c2aae0;
   position: relative;
   width: 0;
   height: 0;
@@ -1206,7 +1237,7 @@ body {
   bottom: 0;
   width: 16px;
   height: 20px;
-  fill: oklch(0.78 0.13 var(--lang-h));
+  fill: var(--lang-soft);
   transform-origin: 50% 100%;
   transition: transform 0.25s var(--ease), fill 0.2s;
 }
@@ -1216,8 +1247,8 @@ body {
 
 .globe-pin.selected svg {
   transform: scale(1.8);
-  fill: oklch(0.85 0.14 var(--lang-h));
-  filter: drop-shadow(0 0 6px oklch(0.8 0.14 var(--lang-h) / 0.8));
+  fill: var(--lang-core);
+  filter: drop-shadow(0 0 6px var(--lang-soft));
 }
 
 #spin-btn:disabled { opacity: 0.6; cursor: default; transform: none; }
@@ -1247,7 +1278,8 @@ body {
 #explore-intro.docked .btn-primary { margin-top: 0; }
 
 #explore-panel {
-  --lang-h: 160;
+  --lang-core: #8a4fe0;
+  --lang-soft: #c2aae0;
   position: absolute;
   top: 16px;
   right: 16px;
@@ -1269,16 +1301,16 @@ body {
   align-items: center;
   gap: 14px;
   padding: 18px;
-  background: oklch(0.56 0.17 var(--lang-h));
+  background: radial-gradient(62% 75% at 50% 50%, var(--lang-core), var(--lang-soft));
   border-bottom: 1px solid var(--line);
 }
 
 #explore-flag { font-size: 40px; line-height: 1; }
 
 #explore-name {
+  font-family: var(--font-display);
+  font-weight: 400;
   font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
 }
 
 #explore-country .eyebrow { margin-bottom: 2px; }
@@ -1326,7 +1358,8 @@ body {
 }
 
 #queue-header h2 {
-  font-weight: 700;
+  font-family: var(--font-display);
+  font-weight: 400;
   font-size: 22px;
 }
 
@@ -1513,7 +1546,7 @@ body {
 
 /* shuffle, repeat, lyrics and queue light up when on, with a dot beneath */
 .ctrl-btn[aria-pressed="true"],
-.ctrl-btn.on { color: var(--green); }
+.ctrl-btn.on { color: var(--accent-soft); }
 
 .ctrl-btn[aria-pressed="true"]::after,
 .ctrl-btn.on::after {
@@ -1581,7 +1614,7 @@ body {
 }
 
 #progress-hit:hover #progress-bar,
-#progress-hit.scrubbing #progress-bar { background: var(--green); }
+#progress-hit.scrubbing #progress-bar { background: var(--accent-soft); }
 
 #progress-knob {
   position: absolute;
@@ -1659,7 +1692,7 @@ body {
 }
 
 .device-option:hover { background: var(--ink-3); }
-.device-option.active { color: var(--green); }
+.device-option.active { color: var(--accent-soft); }
 .device-option svg { width: 18px; height: 18px; }
 .device-option:disabled { color: var(--text-4); cursor: default; background: none; }
 
@@ -1674,7 +1707,7 @@ body {
 
 #volume-slider {
   width: 150px;
-  accent-color: var(--green);
+  accent-color: var(--accent-soft);
 }
 
 /* ── phones' tab bar (hidden on wider screens) ── */
@@ -1732,20 +1765,21 @@ body {
   width: 64px;
   height: 64px;
   border-radius: 18px;
-  background: var(--green);
-  color: var(--green-ink);
+  background: conic-gradient(from 200deg, #e0524d, #f07a3a, #f4a93a, #8cc832, #3faea5,
+    #4a72e0, #8a4fe0, #c058dd, #e2528f, #e0524d);
+  color: #14101c;
   display: grid;
   place-items: center;
   margin-bottom: 22px;
-  box-shadow: 0 10px 34px rgba(29, 185, 84, 0.3);
+  box-shadow: 0 10px 34px rgba(138, 79, 224, 0.35);
 }
 
 #welcome-icon svg { width: 30px; height: 30px; }
 
 #welcome-title {
+  font-family: var(--font-display);
+  font-weight: 400;
   font-size: clamp(26px, 4vw, 32px);
-  font-weight: 700;
-  letter-spacing: -0.02em;
   line-height: 1.15;
 }
 
@@ -1754,7 +1788,7 @@ body {
 #welcome-tagline {
   font-size: 16px;
   font-weight: 600;
-  color: var(--green);
+  color: var(--accent-soft);
   margin-top: 6px;
 }
 
@@ -1781,7 +1815,7 @@ body {
   transition: width 0.35s var(--ease), background 0.35s;
 }
 
-#onboard-progress span.active { width: 44px; background: var(--green); }
+#onboard-progress span.active { width: 44px; background: var(--accent-soft); }
 
 .onboard-panel {
   width: 100%;
@@ -1822,15 +1856,15 @@ body {
   top: 5px;
   width: 9px;
   height: 5px;
-  border-left: 2px solid var(--green);
-  border-bottom: 2px solid var(--green);
+  border-left: 2px solid var(--accent-soft);
+  border-bottom: 2px solid var(--accent-soft);
   transform: rotate(-45deg);
 }
 
 .onboard-panel-note {
   font-size: 13.5px;
   font-weight: 500;
-  color: var(--green);
+  color: var(--accent-soft);
   margin-top: 12px;
 }
 
@@ -1864,7 +1898,7 @@ body {
 .demo-translation {
   font-size: 14.5px;
   font-weight: 500;
-  color: var(--green);
+  color: var(--accent-soft);
 }
 
 #onboard-language .select-wrap select { width: 100%; }
@@ -1883,6 +1917,15 @@ body {
   max-width: 320px;
   padding: 13px 22px;
 }
+
+/* the one place Spotify's green belongs: connecting to Spotify */
+#welcome-login-btn,
+.library-message a[href="/login"] {
+  background: var(--spotify-green);
+  color: #000;
+}
+
+#welcome-login-btn:hover { background: #1ed760; }
 
 #welcome-login-btn.hidden { display: none; }
 
@@ -1904,7 +1947,7 @@ body {
 }
 
 #welcome-note:empty { display: none; }
-#welcome-note a { color: var(--green); text-decoration: none; font-weight: 600; }
+#welcome-note a { color: var(--accent-soft); text-decoration: none; font-weight: 600; }
 #welcome-note a:hover { text-decoration: underline; }
 
 /* ── welcome screen floating elements ── */
@@ -1934,14 +1977,14 @@ body {
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, var(--green), #6ee79a);
-  color: var(--green-ink);
+  background: linear-gradient(135deg, var(--accent-soft), #6ee79a);
+  color: var(--accent-ink);
   font-weight: 700;
   font-size: 16px;
 }
 
 #profile-name { font-size: 14.5px; font-weight: 600; }
-#profile-status { font-size: 12.5px; color: var(--green); }
+#profile-status { font-size: 12.5px; color: var(--accent-soft); }
 
 .settings-group {
   max-width: 760px;
@@ -2001,7 +2044,7 @@ body {
   transition: border-color 0.15s;
 }
 
-.select-wrap select:hover { border-color: var(--green-line); }
+.select-wrap select:hover { border-color: var(--accent-line); }
 
 .select-wrap svg {
   position: absolute;
@@ -2144,7 +2187,7 @@ body {
   }
 
   #mobile-nav .nav-link svg { width: 22px; height: 22px; }
-  #mobile-nav .nav-link.active { color: var(--green); }
+  #mobile-nav .nav-link.active { color: var(--accent-soft); }
 }
 
 /* ── reduced motion ── */

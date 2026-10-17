@@ -336,24 +336,58 @@ function langLabel(code) {
   return LANG_LABELS[base] || base
 }
 
-// Every language has its own colour: a hue for the pills, chips and cards
-// that mark it. Languages not listed get a stable hue from their code.
-const LANG_HUES = {
-  FR: 12, ES: 42, HI: 68, PA: 140, KO: 292, JA: 345, ZH: 28, PT: 172,
-  IT: 155, AR: 228, DE: 262, RU: 250, TR: 198, ID: 186, UR: 158, BN: 96,
-  TA: 54, TE: 82, NL: 32, PL: 318, SV: 214, VI: 128, TH: 276, EN: 206
+// Every language has its own colour. The palette is the nine Browse All
+// colours from the Figma file — a saturated core and a bright pastel edge —
+// plus three more in the same spirit for languages that need their own.
+const SWATCHES = {
+  rose: ['#e0524d', '#f2a3a0'], tangerine: ['#f07a3a', '#f7b482'],
+  mango: ['#f4a93a', '#f9d49e'], lime: ['#8cc832', '#cdeb8b'],
+  seafoam: ['#3faea5', '#abd5d2'], periwinkle: ['#4a72e0', '#afbde2'],
+  violet: ['#8a4fe0', '#c2aae0'], orchid: ['#c058dd', '#e4bfee'],
+  bubblegum: ['#e2528f', '#f6b8d3'],
+  sky: ['#2ea8e0', '#a9dcf3'], coral: ['#ff6b57', '#ffbcb2'], sunflower: ['#e9b824', '#f7e19a']
 }
 
-function langHue(code) {
+const LANG_SWATCH = {
+  FR: 'rose', KO: 'tangerine', HI: 'mango', ES: 'lime', EN: 'seafoam', JA: 'periwinkle',
+  ZH: 'violet', AR: 'orchid', IT: 'bubblegum', PA: 'sunflower', PT: 'sky', TR: 'coral',
+  UR: 'orchid', DE: 'periwinkle', RU: 'sky', ID: 'sunflower', TH: 'tangerine', VI: 'lime',
+  TL: 'coral', NL: 'tangerine', PL: 'rose', SV: 'sky', EL: 'periwinkle', HE: 'violet'
+}
+
+// the app's own colour when no language is in play
+const BRAND_SWATCH = 'violet'
+
+function langSwatch(code) {
   const base = (code || '').split('-')[0]
-  if (base in LANG_HUES) return LANG_HUES[base]
-  let hash = 0
-  for (const ch of base) hash = (hash * 31 + ch.charCodeAt(0)) % 360
-  return hash
+  let name = LANG_SWATCH[base]
+  if (!name) {
+    // anything unlisted still gets a colour, the same one every time
+    const names = Object.keys(SWATCHES)
+    let hash = 0
+    for (const ch of base) hash = (hash * 31 + ch.charCodeAt(0)) % names.length
+    name = base ? names[hash] : BRAND_SWATCH
+  }
+  return SWATCHES[name]
+}
+
+function paintSwatch(el, [core, soft]) {
+  el.style.setProperty('--lang-core', core)
+  el.style.setProperty('--lang-soft', soft)
+}
+
+// The whole app takes on the colour of the language that's playing.
+let accentLang = null
+function setAccent(code) {
+  if (code === accentLang) return
+  accentLang = code
+  const [core, soft] = code ? langSwatch(code) : SWATCHES[BRAND_SWATCH]
+  document.documentElement.style.setProperty('--accent', core)
+  document.documentElement.style.setProperty('--accent-soft', soft)
 }
 
 function paintLangPill(el, code) {
-  el.style.setProperty('--lang-h', langHue(code))
+  paintSwatch(el, langSwatch(code))
 }
 
 function normaliseLyric(text) {
@@ -1228,7 +1262,7 @@ const LANGUAGE_TILES = [
   { country: 'kr', title: 'K-Pop', lang: 'KO' },
   { country: 'in', title: 'Bollywood & Punjabi', lang: 'HI' },
   { country: 'mx', title: 'Latin', lang: 'ES' },
-  { country: 'ng', title: 'Afrobeats', hue: 48 },
+  { country: 'ng', title: 'Afrobeats', lang: 'EN', swatch: 'seafoam' },
   { country: 'jp', title: 'J-Pop', lang: 'JA' },
   { country: 'tw', title: 'C-Pop', lang: 'ZH' },
   { country: 'eg', title: 'Arabic Pop', lang: 'AR' },
@@ -1352,7 +1386,7 @@ async function renderChartInto(list, country, limit) {
 }
 
 function paintTile(tile, spec) {
-  tile.style.setProperty('--lang-h', spec.hue ?? langHue(spec.lang))
+  paintSwatch(tile, spec.swatch ? SWATCHES[spec.swatch] : langSwatch(spec.lang))
 }
 
 function languageTile(spec) {
@@ -1582,7 +1616,7 @@ function pinElement(d) {
   const pin = document.createElement('button')
   pin.type = 'button'
   pin.className = 'globe-pin'
-  pin.style.setProperty('--lang-h', langHue(d.lang))
+  paintSwatch(pin, langSwatch(d.lang))
   pin.title = `${flag(d.code)} ${d.name}`
   pin.setAttribute('aria-label', `Explore ${d.name}`)
   pin.innerHTML = PIN_ICON
@@ -1610,7 +1644,7 @@ async function openExplore() {
     .backgroundColor('rgba(0,0,0,0)')
     .globeImageUrl(GLOBE_TEXTURE)
     .showAtmosphere(true)
-    .atmosphereColor('#1db954')
+    .atmosphereColor('#8a4fe0')
     .atmosphereAltitude(0.18)
     .htmlElementsData(pins)
     .htmlLat('lat')
@@ -2493,6 +2527,7 @@ async function disconnectSpotify() {
 // after Disconnect, or when the server says the session has gone.
 function signedOut() {
   isLoggedIn = false
+  setAccent(null)
   stopWebPlayer()
   accessProblem = null
   libraryItems = []
@@ -2813,6 +2848,7 @@ async function fetchNowPlaying() {
     failedAttempts = 0
 
     if (!translateData.translated) {
+      setAccent(null)
       currentContentState = 'no-lyrics'
       showContent('message', {
         title: "We couldn't find the lyric translations for this song yet. Check back soon — we're working on it!",
@@ -2831,6 +2867,7 @@ async function fetchNowPlaying() {
     currentLyricsSynced = hasTimings(currentLyrics)
 
     if (!currentLyrics.some(line => line.needsTranslation)) {
+      setAccent(null)
       currentLyrics = []
       currentContentState = 'english'
       showContent('message', {
@@ -2841,6 +2878,7 @@ async function fetchNowPlaying() {
     }
 
     const lang = dominantLanguage(currentLyrics)
+    setAccent(lang || null)
     if (lang) {
       langBadge.textContent = `${langLabel(lang)} → ${langLabel(targetLang)}`
       paintLangPill(langBadge, lang)

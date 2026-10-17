@@ -205,6 +205,19 @@ function setWelcomeText(title, tagline, desc) {
   document.getElementById('welcome-desc').textContent = desc
 }
 
+// The welcome card without the onboarding steps: "you're connected", or why
+// Spotify said no. `canConnect` shows the Connect with Spotify button.
+function showWelcomeMessage(title, tagline, desc, canConnect) {
+  setWelcomeIcon('brand')
+  setWelcomeText(title, tagline, desc)
+  document.getElementById('onboard-progress').hidden = true
+  for (const id of ONBOARD_PANELS) document.getElementById(id).hidden = true
+  document.getElementById('onboard-next').hidden = true
+  document.getElementById('onboard-back').hidden = true
+  welcomeLoginBtn.classList.toggle('hidden', !canConnect)
+  setWelcomeNote(canConnect ? 'Your Spotify password is never shared with us' : '')
+}
+
 function showWelcomeScreen() {
   topBar.style.display = 'none'
   bottomBar.style.display = 'none'
@@ -215,19 +228,22 @@ function showWelcomeScreen() {
   welcomeScreen.style.display = 'flex'
   welcomeScreen.style.opacity = '1'
 
-  if (isLoggedIn) {
-    welcomeLoginBtn.classList.add('hidden')
-    setWelcomeText("You're connected!", 'Play a song in Spotify to get started',
-      'Your translated lyrics will appear here, line by line, as you listen.')
+  if (onboardingOpen) {
+    renderOnboardingStep(4)
+    stopWelcomeAnimation()
+    resizeCanvas()
+    isAnimating = true
+    requestAnimationFrame(animateWelcome)
+  } else if (isLoggedIn) {
+    showWelcomeMessage("You're connected!", 'Play a song in Spotify to get started',
+      'Your translated lyrics will appear here, line by line, as you listen.', false)
     // orbs run on connected screen too — just no floating flags/notes
     stopWelcomeAnimation()
     resizeCanvas()
     isAnimating = true
     requestAnimationFrame(animateWelcome)
   } else {
-    welcomeLoginBtn.classList.remove('hidden')
-    setWelcomeText('Welcome to LyricSync', 'Music, understood.',
-      'Connect Spotify and LyricSync shows you real-time translated lyrics — line by line, in sync, as you listen. No pausing. No Googling. Just music and meaning, together.')
+    renderOnboardingStep(onboardStep)
     startWelcomeAnimation()  // flags + notes + orbs
   }
 }
@@ -235,6 +251,8 @@ function showWelcomeScreen() {
 function hideWelcomeScreen(callback) {
   welcomeScreen.classList.add('fade-out')
   setTimeout(() => {
+    // the language step opened while this faded out — it stays up
+    if (onboardingOpen) return
     welcomeScreen.classList.add('hidden')
     welcomeScreen.style.display = 'none'
     stopWelcomeAnimation()
@@ -318,14 +336,34 @@ function langLabel(code) {
   return LANG_LABELS[base] || base
 }
 
+// Every language has its own colour: a hue for the pills, chips and cards
+// that mark it. Languages not listed get a stable hue from their code.
+const LANG_HUES = {
+  FR: 12, ES: 42, HI: 68, PA: 140, KO: 292, JA: 345, ZH: 28, PT: 172,
+  IT: 112, AR: 228, DE: 262, RU: 250, TR: 198, ID: 186, UR: 158, BN: 96,
+  TA: 54, TE: 82, NL: 32, PL: 318, SV: 214, VI: 128, TH: 276, EN: 206
+}
+
+function langHue(code) {
+  const base = (code || '').split('-')[0]
+  if (base in LANG_HUES) return LANG_HUES[base]
+  let hash = 0
+  for (const ch of base) hash = (hash * 31 + ch.charCodeAt(0)) % 360
+  return hash
+}
+
+function paintLangPill(el, code) {
+  el.style.setProperty('--lang-h', langHue(code))
+}
+
 function normaliseLyric(text) {
   return text.toLowerCase().replace(/\s+/g, ' ').trim()
 }
 
-// A line DeepL left alone was already in English — there's nothing to show
-// underneath it, but the line itself still belongs in the song.
+// A line DeepL left alone was already in the language we're translating
+// into — there's nothing to show under it, but it still belongs in the song.
 function needsTranslation(line) {
-  if (line.detected_language === 'EN') return false
+  if (line.detected_language === targetBase()) return false
   return normaliseLyric(line.original) !== normaliseLyric(line.translation)
 }
 
@@ -391,9 +429,9 @@ function updateActiveLine(index) {
 // scrollIntoView would also scroll #main — overflow:hidden, but still
 // scrollable from script — and shove the whole card up. Scroll the lyrics
 // well alone.
-function centreLine(line) {
+function centreLine(line, instant = false) {
   const top = line.offsetTop - (lyricsContainer.clientHeight - line.offsetHeight) / 2
-  lyricsContainer.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' })
+  lyricsContainer.scrollTo({ top: Math.max(top, 0), behavior: instant ? 'instant' : 'smooth' })
 }
 
 // A line can't be scrolled to while the lyrics are hidden (behind the welcome
@@ -402,6 +440,9 @@ function centreLine(line) {
 function recentreLyrics() {
   currentLineIndex = -1
   syncActiveLine(isPlaying ? progressMs + (Date.now() - lastServerSync) : progressMs)
+  // arriving at the lyrics jumps to the line; only moving between lines glides
+  const active = lyricsInner.querySelector('.lyric-line.active')
+  if (active) centreLine(active, true)
 }
 
 function paintProgress(ms, dur = durationMs) {
@@ -424,9 +465,78 @@ function updatePlayPauseIcon(playing) {
 }
 
 function updateTopBar(data) {
+  paintFavouriteButton(data.track_id)
   songName.textContent = data.song
   artistName.textContent = data.artist
-  if (data.album_art) albumArt.src = data.album_art
+  if (data.album_art && albumArt.getAttribute('src') !== data.album_art) {
+    albumArt.src = data.album_art
+    tintFromArtwork(data.album_art)
+  }
+}
+
+// The room takes on the colour of the album that's playing. Spotify's image
+// CDN allows cross-origin reads, so the artwork can be sampled on a canvas.
+function tintFromArtwork(url) {
+  const img = new Image()
+  img.crossOrigin = 'anonymous'
+  img.onload = () => {
+    try {
+      const size = 24
+      const canvas = document.createElement('canvas')
+      canvas.width = canvas.height = size
+      const ctx2d = canvas.getContext('2d', { willReadFrequently: true })
+      ctx2d.drawImage(img, 0, 0, size, size)
+      const pixels = ctx2d.getImageData(0, 0, size, size).data
+
+      // weight each pixel by how colourful it is, so a grey sleeve with one
+      // red stripe reads as red rather than as mud
+      let r = 0, g = 0, b = 0, total = 0
+      for (let i = 0; i < pixels.length; i += 4) {
+        const max = Math.max(pixels[i], pixels[i + 1], pixels[i + 2])
+        const min = Math.min(pixels[i], pixels[i + 1], pixels[i + 2])
+        const weight = (max - min) / 255 + 0.05
+        r += pixels[i] * weight
+        g += pixels[i + 1] * weight
+        b += pixels[i + 2] * weight
+        total += weight
+      }
+      const [h, s] = rgbToHsl(r / total, g / total, b / total)
+      // keep it luminous enough to glow on near-black, never neon
+      const [cr, cg, cb] = hslToRgb(h, Math.min(Math.max(s, 0.35), 0.7), 0.62)
+      document.documentElement.style.setProperty('--ambient', `${cr} ${cg} ${cb}`)
+    } catch (e) {
+      // a tainted canvas or odd image just keeps the previous colour
+    }
+  }
+  img.src = url
+}
+
+function rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255
+  const max = Math.max(r, g, b), min = Math.min(r, g, b)
+  const l = (max + min) / 2
+  if (max === min) return [0, 0, l]
+  const d = max - min
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+  let h
+  if (max === r) h = (g - b) / d + (g < b ? 6 : 0)
+  else if (max === g) h = (b - r) / d + 2
+  else h = (r - g) / d + 4
+  return [h / 6, s, l]
+}
+
+function hslToRgb(h, s, l) {
+  const hue = t => {
+    if (t < 0) t += 1
+    if (t > 1) t -= 1
+    if (t < 1 / 6) return p + (q - p) * 6 * t
+    if (t < 1 / 2) return q
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6
+    return p
+  }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s
+  const p = 2 * l - q
+  return [hue(h + 1 / 3), hue(h), hue(h - 1 / 3)].map(v => Math.round(v * 255))
 }
 
 function updateBottomBar(data) {
@@ -447,9 +557,11 @@ function updateBottomBar(data) {
 
 function applyTranslationEnabled(enabled) {
   translationEnabled = enabled
-  const toggle = document.getElementById('toggle-switch')
-  toggle.classList.toggle('on', translationEnabled)
-  toggle.setAttribute('aria-checked', String(translationEnabled))
+  for (const id of ['toggle-switch', 'settings-translate-toggle']) {
+    const toggle = document.getElementById(id)
+    toggle.classList.toggle('on', translationEnabled)
+    toggle.setAttribute('aria-checked', String(translationEnabled))
+  }
   document.querySelectorAll('.lyric-translation').forEach(el => {
     el.style.display = translationEnabled ? '' : 'none'
   })
@@ -471,6 +583,12 @@ async function loadPrefs() {
     if (!res.ok) return
     const prefs = await res.json()
     applyTranslationEnabled(prefs.auto_translate !== false)
+    if (prefs.target_lang && prefs.target_lang !== targetLang) {
+      targetLang = prefs.target_lang
+      targetSelect.value = targetLang
+      reloadLyrics()   // anything already loaded was fetched in English
+    }
+    if (prefs.onboarded === false) openLanguageStep()
   } catch (e) {
     console.warn('Loading settings failed:', e)
   }
@@ -833,12 +951,190 @@ async function playContext(item) {
 }
 
 // ─────────────────────────────────────────
+//  FAVOURITES
+// ─────────────────────────────────────────
+
+let favourites = []           // newest first, as the server sends them
+const favList = document.getElementById('fav-list')
+const favButton = document.getElementById('fav-btn')
+
+function isFavourite(trackId) {
+  return favourites.some(track => track.track_id === trackId)
+}
+
+function paintFavouriteButton(trackId) {
+  const saved = isFavourite(trackId)
+  favButton.setAttribute('aria-pressed', String(saved))
+  const label = saved ? 'Remove from Favourites' : 'Save to Favourites'
+  favButton.setAttribute('aria-label', label)
+  favButton.title = label
+}
+
+async function loadFavourites() {
+  try {
+    const res = await fetch('/favourites')
+    if (!res.ok) return
+    favourites = (await res.json()).tracks || []
+    paintFavouriteButton(playerTrackId())
+    renderFavourites()
+  } catch (e) {
+    console.warn('Favourites error:', e)
+  }
+}
+
+async function toggleFavourite() {
+  const track = lastKnownData
+  if (!track || !track.track_id) return
+  const saving = !isFavourite(track.track_id)
+  const before = favourites
+
+  // show it straight away; put it back if the server says no
+  if (saving) {
+    favourites = [{
+      track_id: track.track_id, song: track.song, artist: track.artist,
+      album: track.album, album_art: track.album_art, duration_ms: track.duration_ms,
+      source_lang: track.track_id === currentTrackId ? dominantLanguage(currentLyrics) || null : null
+    }, ...favourites]
+  } else {
+    favourites = favourites.filter(t => t.track_id !== track.track_id)
+  }
+  paintFavouriteButton(track.track_id)
+  renderFavourites()
+
+  try {
+    const url = `/favourites/${encodeURIComponent(track.track_id)}`
+    const res = saving
+      ? await fetch(url, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(favourites[0])
+        })
+      : await fetch(url, { method: 'DELETE' })
+    if (!res.ok) throw new Error(`favourites: ${res.status}`)
+    showToast(saving ? 'Saved to Favourites' : 'Removed from Favourites', 2500)
+  } catch (e) {
+    favourites = before
+    paintFavouriteButton(track.track_id)
+    renderFavourites()
+    showToast("Couldn't update Favourites — try again in a moment.")
+  }
+}
+
+async function removeFavourite(track) {
+  const before = favourites
+  favourites = favourites.filter(t => t.track_id !== track.track_id)
+  paintFavouriteButton(playerTrackId())
+  renderFavourites()
+  try {
+    const res = await fetch(`/favourites/${encodeURIComponent(track.track_id)}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error(`favourites: ${res.status}`)
+  } catch (e) {
+    favourites = before
+    paintFavouriteButton(playerTrackId())
+    renderFavourites()
+    showToast("Couldn't remove that — try again in a moment.")
+  }
+}
+
+// Play the list from one song on, so it carries on through the rest.
+async function playFavourites(index) {
+  try {
+    const result = await postPlayback({
+      action: 'play_tracks',
+      track_ids: favourites.slice(0, 100).map(t => t.track_id),
+      offset: Math.min(index, 99)
+    })
+    if (!result.ok) {
+      reportPlaybackProblem(result)
+      return
+    }
+    setTimeout(fetchNowPlaying, 500)
+  } catch (e) {
+    showToast(UNREACHABLE)
+  }
+}
+
+const HEART_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-9.2-9.4C1.6 7.6 3.9 4 7.5 4c1.9 0 3.4 1 4.5 2.5C13.1 5 14.6 4 16.5 4c3.6 0 5.9 3.6 4.7 7.1-1.7 4.8-9.2 9.4-9.2 9.4z"/></svg>'
+
+function renderFavourites() {
+  const count = favourites.length
+  document.getElementById('fav-count').textContent =
+    count === 1 ? '1 song' : `${count} songs`
+  document.getElementById('fav-play-all').hidden = count === 0
+  document.getElementById('fav-table').classList.toggle('empty', count === 0)
+
+  favList.innerHTML = ''
+  if (!count) {
+    const empty = document.createElement('div')
+    empty.className = 'grid-empty'
+    empty.innerHTML = '<p class="grid-empty-title">No favourites yet.</p>' +
+      '<p class="grid-empty-sub">Tap the heart next to a song that\'s playing to save it here.</p>'
+    favList.appendChild(empty)
+    return
+  }
+
+  favourites.forEach((track, index) => {
+    // names come from Spotify — textContent only
+    const row = document.createElement('div')
+    row.className = 'fav-row'
+    row.setAttribute('role', 'row')
+    if (track.track_id === playerTrackId()) row.classList.add('playing')
+
+    const number = document.createElement('span')
+    number.className = 'fav-num'
+    number.textContent = index + 1
+
+    const title = document.createElement('button')
+    title.type = 'button'
+    title.className = 'fav-title'
+    title.title = `Play ${track.song}`
+    const art = document.createElement('img')
+    art.alt = ''
+    art.loading = 'lazy'
+    if (track.album_art) art.src = track.album_art
+    const text = document.createElement('span')
+    const song = document.createElement('span')
+    song.className = 'fav-song'
+    song.textContent = track.song
+    const artist = document.createElement('span')
+    artist.className = 'fav-artist'
+    artist.textContent = track.artist
+    text.append(song, artist)
+    title.append(art, text)
+    title.addEventListener('click', () => playFavourites(index))
+
+    const album = document.createElement('span')
+    album.className = 'fav-album'
+    album.textContent = track.album || ''
+
+    const lang = document.createElement('span')
+    lang.className = 'fav-lang'
+    if (track.source_lang) lang.appendChild(langPill(track.source_lang, targetLang))
+
+    const time = document.createElement('span')
+    time.className = 'fav-time'
+    time.textContent = track.duration_ms ? formatTime(track.duration_ms) : ''
+
+    const remove = document.createElement('button')
+    remove.type = 'button'
+    remove.className = 'fav-remove'
+    remove.title = 'Remove from Favourites'
+    remove.setAttribute('aria-label', `Remove ${track.song} from Favourites`)
+    remove.innerHTML = HEART_ICON
+    remove.addEventListener('click', () => removeFavourite(track))
+
+    row.append(number, title, album, lang, time, remove)
+    favList.appendChild(row)
+  })
+}
+
+// ─────────────────────────────────────────
 //  PAGES
 // ─────────────────────────────────────────
 
 // Hash routes, so the back button and a refresh keep you on the same page.
-const PLACEHOLDER_TITLES = { home: 'Home', search: 'Search', favourites: 'Favourites' }
-const VIEWS = ['now-playing', 'recent', ...Object.keys(PLACEHOLDER_TITLES)]
+const PLACEHOLDER_TITLES = { home: 'Home', search: 'Search' }
+const VIEWS = ['now-playing', 'recent', 'settings', 'favourites', ...Object.keys(PLACEHOLDER_TITLES)]
 
 function currentView() {
   const name = location.hash.replace(/^#\/?/, '')
@@ -849,6 +1145,8 @@ function route() {
   const view = currentView()
   document.getElementById('view-now-playing').hidden = view !== 'now-playing'
   document.getElementById('view-recent').hidden = view !== 'recent'
+  document.getElementById('view-settings').hidden = view !== 'settings'
+  document.getElementById('view-favourites').hidden = view !== 'favourites'
 
   const placeholder = PLACEHOLDER_TITLES[view]
   document.getElementById('view-placeholder').hidden = !placeholder
@@ -863,6 +1161,8 @@ function route() {
   document.getElementById('btn-lyrics').classList.toggle('on', view === 'now-playing')
 
   if (view === 'recent') loadRecent()
+  if (view === 'settings') loadSettings()
+  if (view === 'favourites') loadFavourites()
   if (view === 'now-playing') recentreLyrics()
 }
 
@@ -1127,53 +1427,128 @@ const recentList = document.getElementById('recent-list')
 
 const PLAY_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"/></svg>'
 
-function recentMessage(text) {
+// Language names for chips and labels, by DeepL's base code.
+const LANG_NAMES = {
+  AR: 'Arabic', BN: 'Bengali', DE: 'German', EL: 'Greek', EN: 'English', ES: 'Spanish',
+  FR: 'French', HI: 'Hindi', ID: 'Indonesian', IT: 'Italian', JA: 'Japanese', KO: 'Korean',
+  NL: 'Dutch', PA: 'Punjabi', PL: 'Polish', PT: 'Portuguese', RU: 'Russian', SV: 'Swedish',
+  TA: 'Tamil', TE: 'Telugu', TH: 'Thai', TR: 'Turkish', UK: 'Ukrainian', UR: 'Urdu',
+  VI: 'Vietnamese', ZH: 'Chinese'
+}
+
+function langName(code) {
+  const base = (code || '').split('-')[0]
+  return LANG_NAMES[base] || base
+}
+
+const RECENT_PAGE = 24
+let recentFilter = null     // a source language, or null for all
+let recentShowAll = false
+
+function recentMessage(text, sub) {
   recentList.innerHTML = ''
   const message = document.createElement('div')
-  message.className = 'recent-empty'
-  message.textContent = text
+  message.className = 'grid-empty'
+  const title = document.createElement('p')
+  title.className = 'grid-empty-title'
+  title.textContent = text
+  message.appendChild(title)
+  if (sub) {
+    const detail = document.createElement('p')
+    detail.className = 'grid-empty-sub'
+    detail.textContent = sub
+    message.appendChild(detail)
+  }
   recentList.appendChild(message)
 }
 
-function buildRecentItem(track) {
-  const row = document.createElement('div')
-  row.className = 'recent-item'
-  if (track.track_id === currentTrackId) row.classList.add('playing')
-  row.title = `Play ${track.song}`
+function langPill(source, target) {
+  const pill = document.createElement('span')
+  pill.className = 'lang-pill'
+  pill.textContent = `${langLabel(source)} → ${langLabel(target || 'EN')}`
+  paintLangPill(pill, source)
+  return pill
+}
 
-  const thumb = document.createElement('div')
-  thumb.className = 'recent-thumb'
-  if (track.album_art) {
-    const art = document.createElement('img')
-    art.src = track.album_art
-    art.alt = ''
-    thumb.appendChild(art)
+// Artwork, or a tile in the song's language colour when there's none.
+function songArt(track) {
+  const art = document.createElement('div')
+  art.className = 'song-card-art'
+  paintLangPill(art, track.source_lang)
+  const noArt = () => {
+    art.classList.add('no-art')
+    art.prepend(document.createTextNode('♫'))
   }
+  if (track.album_art) {
+    const img = document.createElement('img')
+    img.alt = ''
+    img.loading = 'lazy'
+    // artwork that won't load falls back to the colour tile, not a blank
+    img.addEventListener('error', () => { img.remove(); noArt() }, { once: true })
+    img.src = track.album_art
+    art.appendChild(img)
+  } else {
+    noArt()
+  }
+  return art
+}
 
-  // song and artist are set with textContent, not innerHTML — they're names
-  // that came from Spotify, and a track called <img onerror=...> is legal
-  const info = document.createElement('div')
-  info.className = 'recent-info'
-  const song = document.createElement('div')
-  song.className = 'recent-song'
-  song.textContent = track.song
-  const artist = document.createElement('div')
-  artist.className = 'recent-artist'
-  artist.textContent = track.artist
-  info.append(song, artist)
+// Song names come from Spotify, so everything here is textContent.
+function buildRecentItem(track) {
+  const card = document.createElement('button')
+  card.type = 'button'
+  card.className = 'song-card'
+  if (track.track_id === currentTrackId) card.classList.add('playing')
+  card.title = `Play ${track.song}`
 
-  const play = document.createElement('div')
-  play.className = 'recent-play'
+  const art = songArt(track)
+  const play = document.createElement('span')
+  play.className = 'song-card-play'
   play.innerHTML = PLAY_ICON
+  art.appendChild(play)
 
-  row.append(thumb, info, play)
-  row.addEventListener('click', () => playTrack(track))
-  return row
+  const title = document.createElement('span')
+  title.className = 'song-card-title'
+  title.textContent = track.song
+  const artist = document.createElement('span')
+  artist.className = 'song-card-artist'
+  artist.textContent = track.artist
+
+  card.append(art, title, artist)
+  if (track.source_lang) card.appendChild(langPill(track.source_lang, track.target_lang))
+  card.addEventListener('click', () => playTrack(track))
+  return card
+}
+
+function renderRecentChips(languages, total) {
+  const chips = document.getElementById('recent-chips')
+  chips.innerHTML = ''
+  if (!languages.length) return
+  const all = [{ lang: null, count: total }, ...languages]
+  all.forEach(({ lang, count }) => {
+    const chip = document.createElement('button')
+    chip.type = 'button'
+    chip.className = 'chip lang-chip'
+    chip.setAttribute('aria-pressed', String(recentFilter === lang))
+    chip.textContent = lang ? langName(lang) : 'All'
+    const n = document.createElement('span')
+    n.className = 'chip-count'
+    n.textContent = count
+    chip.appendChild(n)
+    if (lang) paintLangPill(chip, lang)
+    chip.addEventListener('click', () => {
+      recentFilter = lang
+      recentShowAll = false
+      loadRecent()
+    })
+    chips.appendChild(chip)
+  })
 }
 
 function renderRecent(tracks) {
   if (!tracks.length) {
-    recentMessage('Nothing translated yet — play a song in another language on Spotify.')
+    recentMessage('Nothing translated yet.',
+      "Play a song in another language and it'll appear here.")
     return
   }
   recentList.innerHTML = ''
@@ -1207,57 +1582,334 @@ function recordListen(track, sourceLang) {
       artist: track.artist,
       album_art: track.album_art || null,
       source_lang: sourceLang || null,
-      target_lang: 'EN'
+      target_lang: targetLang
     })
   }).catch(e => console.warn('Recording history failed:', e))
 }
 
 async function loadRecent() {
-  recentMessage('Loading…')
+  const params = new URLSearchParams({ limit: recentShowAll ? 200 : RECENT_PAGE })
+  if (recentFilter) params.set('lang', recentFilter)
   try {
-    const res = await fetch('/history')
+    const res = await fetch(`/history?${params}`)
     if (res.status === 401) {
       recentMessage('Connect Spotify to see your listening history.')
       return
     }
     if (!res.ok) throw new Error(`history: ${res.status}`)
     const data = await res.json()
-    renderRecent(data.tracks || [])
+    const tracks = data.tracks || []
+    renderRecentChips(data.languages || [], data.total || 0)
+    renderRecent(tracks)
+
+    // how many the current filter holds, to know whether there's more
+    const inFilter = recentFilter
+      ? ((data.languages || []).find(l => l.lang === recentFilter) || {}).count || 0
+      : data.total || 0
+    const more = document.getElementById('recent-more')
+    more.hidden = recentShowAll || inFilter <= tracks.length
+    more.textContent = `Show all ${inFilter} songs`
   } catch (e) {
     console.error('Recently translated error:', e)
-    recentMessage("Couldn't load your history — try again in a moment.")
+    recentMessage("Couldn't load your history.", 'Try again in a moment.')
   }
 }
 
-// ── settings modal ──
-document.getElementById('sidebar-settings-btn').addEventListener('click', openSettings)
-document.getElementById('settings-modal').addEventListener('click', function(e) {
-  if (e.target === this) closeSettings()
+document.getElementById('recent-more').addEventListener('click', () => {
+  recentShowAll = true
+  loadRecent()
 })
 
-function openSettings() {
-  // populate account name if we have it
-  fetch('/me')
-    .then(r => r.json())
-    .then(data => {
-      const nameEl = document.getElementById('settings-account-name')
-      if (nameEl && data.display_name) nameEl.textContent = data.display_name
-      const emailEl = document.getElementById('settings-account-email')
-      if (emailEl && data.email) emailEl.textContent = data.email
-    })
-    .catch(() => {})
-  document.getElementById('settings-modal').style.display = 'flex'
+// ─────────────────────────────────────────
+//  SETTINGS
+// ─────────────────────────────────────────
+
+// The languages offered in "Translate into" — DeepL target codes.
+const TARGET_CHOICES = [
+  ['EN', 'English'], ['AR', 'Arabic'], ['BN', 'Bengali'], ['ZH-HANS', 'Chinese (Simplified)'],
+  ['NL', 'Dutch'], ['FR', 'French'], ['DE', 'German'], ['EL', 'Greek'], ['HI', 'Hindi'],
+  ['ID', 'Indonesian'], ['IT', 'Italian'], ['JA', 'Japanese'], ['KO', 'Korean'],
+  ['PL', 'Polish'], ['PT-BR', 'Portuguese (Brazil)'], ['PA', 'Punjabi'], ['RU', 'Russian'],
+  ['ES', 'Spanish'], ['SV', 'Swedish'], ['TA', 'Tamil'], ['TH', 'Thai'], ['TR', 'Turkish'],
+  ['UK', 'Ukrainian'], ['UR', 'Urdu'], ['VI', 'Vietnamese']
+]
+
+let targetLang = 'EN'
+const targetSelect = document.getElementById('target-lang')
+
+TARGET_CHOICES.forEach(([code, name]) => {
+  const option = document.createElement('option')
+  option.value = code
+  option.textContent = name
+  targetSelect.appendChild(option)
+})
+
+function targetBase() {
+  return targetLang.split('-')[0]
 }
 
-function closeSettings() {
-  document.getElementById('settings-modal').style.display = 'none'
+function targetName() {
+  const choice = TARGET_CHOICES.find(([code]) => code === targetLang)
+  return choice ? choice[1] : targetLang
+}
+
+targetSelect.addEventListener('change', async () => {
+  const previous = targetLang
+  targetLang = targetSelect.value
+  try {
+    const res = await fetch('/prefs', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_lang: targetLang })
+    })
+    if (!res.ok) throw new Error(`prefs: ${res.status}`)
+    showToast(`Lyrics will now be translated into ${targetName()}`, 3000)
+    reloadLyrics()
+  } catch (e) {
+    targetLang = previous
+    targetSelect.value = previous
+    showToast("Couldn't save that — try again in a moment.")
+  }
+})
+
+// Fetch the playing song's lyrics again, e.g. in a new target language.
+function reloadLyrics() {
+  currentTrackId = null
+  prefetchedTrackId = null
+  fetchNowPlaying()
+}
+
+async function loadSettings() {
+  try {
+    const me = await (await fetch('/me')).json()
+    const name = me.display_name || 'Your account'
+    document.getElementById('profile-name').textContent = name
+    document.getElementById('profile-avatar').textContent = name.trim().charAt(0).toUpperCase()
+    document.getElementById('settings-email').textContent =
+      me.email ? `${me.email} · Connected` : 'Connected'
+  } catch (e) { /* keeps the generic labels */ }
+  refreshHistoryCount()
+}
+
+async function refreshHistoryCount() {
+  try {
+    const res = await fetch('/history?limit=1')
+    if (!res.ok) return
+    const total = (await res.json()).total
+    document.getElementById('settings-history-count').textContent =
+      total === 1 ? '1 song in Recently Translated' : `${total} songs in Recently Translated`
+  } catch (e) { /* leaves the last count up */ }
+}
+
+// Clearing asks twice instead of popping a browser dialog: the first click
+// arms the button for a few seconds, the second does it.
+let clearArmedUntil = 0
+async function clearHistory() {
+  const button = document.getElementById('clear-history-btn')
+  if (Date.now() > clearArmedUntil) {
+    clearArmedUntil = Date.now() + 3000
+    button.textContent = 'Click again to clear'
+    button.classList.add('armed')
+    setTimeout(() => {
+      if (Date.now() >= clearArmedUntil) {
+        button.textContent = 'Clear'
+        button.classList.remove('armed')
+      }
+    }, 3100)
+    return
+  }
+  clearArmedUntil = 0
+  button.textContent = 'Clear'
+  button.classList.remove('armed')
+  try {
+    const res = await fetch('/history', { method: 'DELETE' })
+    if (!res.ok) throw new Error(`history: ${res.status}`)
+    showToast('Listening history cleared', 3000)
+    refreshHistoryCount()
+  } catch (e) {
+    showToast("Couldn't clear your history — try again in a moment.")
+  }
+}
+
+// ─────────────────────────────────────────
+//  ONBOARDING
+// ─────────────────────────────────────────
+
+// Steps 1–3 introduce LyricSync before signing in; step 4 picks a language
+// once signed in, for anyone who hasn't yet.
+const ONBOARD_STEPS = {
+  1: {
+    icon: 'brand',
+    title: 'Welcome to LyricSync',
+    tagline: 'Music, understood.',
+    desc: 'Your music companion with real-time lyric translation. Listen to songs from around the world and understand every word.',
+    next: 'Continue'
+  },
+  2: {
+    icon: 'translate',
+    title: 'Auto-translate lyrics',
+    tagline: 'Break the language barrier',
+    desc: "Whatever's playing, LyricSync finds the lyrics, works out the language and translates every line — side by side, in time with the song.",
+    panel: 'onboard-demo',
+    next: 'Continue',
+    back: 'Back'
+  },
+  3: {
+    icon: 'spotify',
+    title: 'How LyricSync works',
+    tagline: 'Connect your Spotify to get started',
+    desc: 'LyricSync follows what you play on Spotify and shows translated lyrics alongside the original.',
+    panel: 'onboard-permissions',
+    connect: true,
+    back: 'Back',
+    note: 'Your Spotify password is never shared with us'
+  },
+  4: {
+    icon: 'globe',
+    title: 'Choose your language',
+    tagline: "You're almost ready",
+    desc: 'Pick the language lyrics are translated into. You can change it any time in Settings.',
+    panel: 'onboard-language',
+    next: 'Enable auto-translate',
+    back: 'Skip for now'
+  }
+}
+
+const ONBOARD_PANELS = ['onboard-demo', 'onboard-permissions', 'onboard-language']
+
+const WELCOME_ICONS = {
+  brand: '<svg viewBox="0 0 32 32"><path d="M7 12h18" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/><path d="M7 20h10.5" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" opacity=".5"/><circle cx="23" cy="20" r="2.1" fill="currentColor" opacity=".5"/></svg>',
+  translate: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.87 15.07l-2.54-2.51.03-.03A17.52 17.52 0 0 0 14.07 6H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7 1.62-4.33L19.12 17h-3.24z"/></svg>',
+  spotify: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm4.59 14.42a.62.62 0 0 1-.86.21c-2.35-1.44-5.3-1.76-8.79-.96a.62.62 0 1 1-.28-1.22c3.81-.87 7.08-.5 9.72 1.12.29.18.39.56.21.85zm1.22-2.72a.78.78 0 0 1-1.07.26c-2.69-1.65-6.79-2.13-9.97-1.17a.78.78 0 1 1-.45-1.49c3.63-1.1 8.15-.57 11.23 1.33.37.23.48.71.26 1.07zm.11-2.83C14.69 8.95 9.38 8.77 6.3 9.71a.94.94 0 1 1-.54-1.79c3.53-1.07 9.4-.87 13.11 1.34a.94.94 0 0 1-.96 1.61z"/></svg>',
+  globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9.5"/><path d="M2.5 12h19M12 2.5c2.6 2.6 3.9 5.8 3.9 9.5s-1.3 6.9-3.9 9.5c-2.6-2.6-3.9-5.8-3.9-9.5s1.3-6.9 3.9-9.5z"/></svg>'
+}
+
+let onboardStep = 1
+let onboardingOpen = false    // step 4 is up; the welcome screen stays until it's done
+
+function setWelcomeIcon(name) {
+  document.getElementById('welcome-icon').innerHTML = WELCOME_ICONS[name]
+}
+
+function setWelcomeNote(text, link) {
+  const note = document.getElementById('welcome-note')
+  note.textContent = text
+  if (link) {
+    const a = document.createElement('a')
+    a.href = link.href
+    a.textContent = link.label
+    note.append(' ', a)
+  }
+}
+
+function renderOnboardingStep(step) {
+  const config = ONBOARD_STEPS[step]
+  setWelcomeIcon(config.icon)
+  setWelcomeText(config.title, config.tagline, config.desc)
+
+  const progress = document.getElementById('onboard-progress')
+  progress.hidden = false
+  ;[...progress.children].forEach((dot, i) => dot.classList.toggle('active', i + 1 === step))
+
+  for (const id of ONBOARD_PANELS) document.getElementById(id).hidden = id !== config.panel
+
+  const next = document.getElementById('onboard-next')
+  next.hidden = !config.next
+  next.textContent = config.next || ''
+  const back = document.getElementById('onboard-back')
+  back.hidden = !config.back
+  back.textContent = config.back || ''
+  welcomeLoginBtn.classList.toggle('hidden', !config.connect)
+
+  if (step === 1) {
+    setWelcomeNote('Already set up?', { href: '/login', label: 'Connect with Spotify' })
+  } else {
+    setWelcomeNote(config.note || '')
+  }
+}
+
+function goToStep(step) {
+  onboardStep = step
+  renderOnboardingStep(step)
+}
+
+document.getElementById('onboard-next').addEventListener('click', () => {
+  if (onboardingOpen) finishOnboarding(true)
+  else goToStep(Math.min(onboardStep + 1, 3))
+})
+
+document.getElementById('onboard-back').addEventListener('click', () => {
+  if (onboardingOpen) finishOnboarding(false)
+  else goToStep(Math.max(onboardStep - 1, 1))
+})
+
+// step 2's demo: the lines take turns, the way lyrics do
+const demoLines = document.querySelectorAll('.demo-line')
+demoLines.forEach(line => paintLangPill(line.querySelector('.lang-pill'), line.dataset.lang))
+let demoIndex = 0
+demoLines[0].classList.add('active')
+setInterval(() => {
+  if (document.getElementById('onboard-demo').hidden) return
+  demoLines[demoIndex].classList.remove('active')
+  demoIndex = (demoIndex + 1) % demoLines.length
+  demoLines[demoIndex].classList.add('active')
+}, 2400)
+
+const onboardTarget = document.getElementById('onboard-target')
+TARGET_CHOICES.forEach(([code, name]) => {
+  const option = document.createElement('option')
+  option.value = code
+  option.textContent = name
+  onboardTarget.appendChild(option)
+})
+
+function openLanguageStep() {
+  onboardingOpen = true
+  onboardTarget.value = targetLang
+  showWelcomeScreen()
+}
+
+// Enable saves the language and turns translation on; Skip just stops
+// asking. Either way the welcome screen goes and the player comes back.
+async function finishOnboarding(enable) {
+  const changes = { onboarded: true }
+  if (enable) {
+    changes.target_lang = onboardTarget.value
+    changes.auto_translate = true
+  }
+  try {
+    const res = await fetch('/prefs', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(changes)
+    })
+    if (!res.ok) throw new Error(`prefs: ${res.status}`)
+  } catch (e) {
+    showToast("Couldn't save that — try again in a moment.")
+    return
+  }
+
+  onboardingOpen = false
+  if (enable) {
+    applyTranslationEnabled(true)
+    if (changes.target_lang !== targetLang) {
+      targetLang = changes.target_lang
+      targetSelect.value = targetLang
+      reloadLyrics()
+    }
+  }
+  if (lastKnownData) {
+    hideWelcomeScreen(restorePlayerView)
+  } else {
+    showWelcomeScreen()   // nothing playing yet: "you're connected"
+  }
 }
 
 async function disconnectSpotify() {
   try {
     await fetch('/logout', { method: 'POST' })
   } catch(e) {}
-  closeSettings()
+  location.hash = '#/now-playing'
   signedOut()
 }
 
@@ -1268,6 +1920,7 @@ function signedOut() {
   accessProblem = null
   libraryItems = []
   libraryList.innerHTML = ''
+  favourites = []
   currentTrackId = null
   currentTrackData = null
   localRecent = []
@@ -1299,7 +1952,7 @@ async function prefetchNextTrack() {
     prefetchedTrackId = next.track_id
     console.log(`[prefetch] Starting: ${next.song} — ${next.artist}`)
 
-    const url = `/translate?song=${encodeURIComponent(next.song)}&artist=${encodeURIComponent(next.artist)}&track_id=${encodeURIComponent(next.track_id)}&target_lang=EN`
+    const url = `/translate?song=${encodeURIComponent(next.song)}&artist=${encodeURIComponent(next.artist)}&track_id=${encodeURIComponent(next.track_id)}&target_lang=${encodeURIComponent(targetLang)}`
     const r = await fetch(url)
     const d = await r.json()
     console.log(`[prefetch] Done: ${d.cached ? 'cache hit' : 'freshly translated'} — ${next.song}`)
@@ -1346,8 +1999,7 @@ function showAccessProblem(reason) {
   signedOut()
   accessProblem = reason
   const problem = ACCESS_PROBLEMS[reason]
-  setWelcomeText(problem.title, '', problem.desc)
-  welcomeLoginBtn.classList.toggle('hidden', !problem.canReconnect)
+  showWelcomeMessage(problem.title, '', problem.desc, problem.canReconnect)
 }
 
 // ─────────────────────────────────────────
@@ -1392,6 +2044,22 @@ function scheduleLyricsRetry(trackId) {
 //  MAIN FETCH LOOP
 // ─────────────────────────────────────────
 
+// Bring the player back once the welcome screen goes, with whichever panel
+// was showing before it came up.
+function restorePlayerView() {
+  topBar.style.display = 'flex'
+  bottomBar.style.display = 'flex'
+  if (currentContentState === 'lyrics') {
+    lyricsContainer.style.display = 'block'
+    stateScreen.style.display = 'none'
+    recentreLyrics()
+  } else if (currentContentState) {
+    // loading / no-lyrics / english — stateScreen was showing
+    stateScreen.style.display = 'flex'
+    lyricsContainer.style.display = 'none'
+  }
+}
+
 async function fetchNowPlaying() {
   if (isFetching) return
   isFetching = true
@@ -1423,6 +2091,7 @@ async function fetchNowPlaying() {
       accessProblem = null
       isLoggedIn = true
       loadPrefs()
+      loadFavourites()
       loadLibrary()
       showBars()
       fetchContext()
@@ -1499,22 +2168,9 @@ async function fetchNowPlaying() {
 
 
     // welcome screen may be up (nothing had played yet) — restore the player
-    if (!welcomeScreen.classList.contains('hidden') && welcomeScreen.style.display !== 'none') {
-      hideWelcomeScreen(() => {
-        topBar.style.display = 'flex'
-        bottomBar.style.display = 'flex'
-        // restore whichever content panel was showing before pause
-        if (currentContentState === 'lyrics') {
-          lyricsContainer.style.display = 'block'
-          stateScreen.style.display = 'none'
-          // re-sync to current position
-          recentreLyrics()
-        } else if (currentContentState) {
-          // loading / no-lyrics / english — stateScreen was showing
-          stateScreen.style.display = 'flex'
-          lyricsContainer.style.display = 'none'
-        }
-      })
+    if (!onboardingOpen && !welcomeScreen.classList.contains('hidden')
+        && welcomeScreen.style.display !== 'none') {
+      hideWelcomeScreen(restorePlayerView)
     }
 
     // same track — just sync line
@@ -1556,7 +2212,7 @@ async function fetchNowPlaying() {
     let translateData
     try {
       const translateRes = await fetch(
-        `/translate?song=${encodeURIComponent(data.song)}&artist=${encodeURIComponent(data.artist)}&track_id=${encodeURIComponent(data.track_id)}&target_lang=EN`
+        `/translate?song=${encodeURIComponent(data.song)}&artist=${encodeURIComponent(data.artist)}&track_id=${encodeURIComponent(data.track_id)}&target_lang=${encodeURIComponent(targetLang)}`
       )
       if (translateRes.status === 401) {
         signedOut()
@@ -1598,16 +2254,16 @@ async function fetchNowPlaying() {
       currentLyrics = []
       currentContentState = 'english'
       showContent('message', {
-        title: 'Already in English',
-        subtitle: 'No translation needed for this track.'
+        title: `Already in ${targetName()}`,
+        subtitle: 'No translation needed for this one — just enjoy it.'
       })
       return
     }
 
     const lang = dominantLanguage(currentLyrics)
     if (lang) {
-      langBadge.textContent = `${langLabel(lang)} → ENG`
-      langBadge.className = `lang-${lang}`
+      langBadge.textContent = `${langLabel(lang)} → ${langLabel(targetLang)}`
+      paintLangPill(langBadge, lang)
       langBadge.style.display = 'block'
       if (currentTrackId) translation_cache_js[currentTrackId] = `${lang} → EN`
     }

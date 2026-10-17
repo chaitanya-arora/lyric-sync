@@ -641,7 +641,10 @@ def library():
 
 
 PLAYBACK_ACTIONS = ('play', 'pause', 'next', 'previous', 'seek', 'play_track',
-                    'play_context', 'shuffle', 'repeat', 'volume', 'transfer')
+                    'play_tracks', 'play_context', 'shuffle', 'repeat', 'volume',
+                    'transfer')
+
+MAX_PLAY_TRACKS = 100   # a Favourites list at a time; Spotify takes more
 
 # what Your Library can start playing: a whole playlist, album or podcast
 CONTEXT_URI_PATTERN = re.compile(r'^spotify:(playlist|album|show):[A-Za-z0-9]{1,64}$')
@@ -730,6 +733,16 @@ def playback():
         if not isinstance(track_id, str) or not TRACK_ID_PATTERN.match(track_id):
             return jsonify({'error': 'track_id must be a Spotify track id'}), 400
 
+    # play_tracks: a list of songs (Favourites), starting at one of them
+    track_ids = body.get('track_ids')
+    offset = body.get('offset', 0)
+    if action == 'play_tracks':
+        if (not isinstance(track_ids, list) or not 1 <= len(track_ids) <= MAX_PLAY_TRACKS
+                or not all(isinstance(t, str) and TRACK_ID_PATTERN.match(t) for t in track_ids)):
+            return jsonify({'error': 'track_ids must be a list of Spotify track ids'}), 400
+        if isinstance(offset, bool) or not isinstance(offset, int) or not 0 <= offset < len(track_ids):
+            return jsonify({'error': 'offset must point into track_ids'}), 400
+
     context_uri = body.get('context_uri')
     if action == 'play_context' and (not isinstance(context_uri, str)
                                      or not CONTEXT_URI_PATTERN.match(context_uri)):
@@ -772,6 +785,12 @@ def playback():
             return spotify_put(
                 f"{SPOTIFY_API_URL}/me/player/play",
                 json={'uris': [f'spotify:track:{track_id}']}
+            )
+        if action == 'play_tracks':
+            return spotify_put(
+                f"{SPOTIFY_API_URL}/me/player/play",
+                json={'uris': [f'spotify:track:{t}' for t in track_ids],
+                      'offset': {'position': offset}}
             )
         if action == 'play_context':
             return spotify_put(f"{SPOTIFY_API_URL}/me/player/play",
@@ -915,7 +934,8 @@ def translate():
     # DeepL can't place romanised Hindi or Punjabi by itself, but translates
     # it well once told. English lines in the same song come back unchanged.
     romanised_lang = detect_language(texts_to_translate)
-    if romanised_lang:
+    # DeepL refuses a source that matches the target (Hindi into Hindi)
+    if romanised_lang and romanised_lang != target_lang.split('-')[0]:
         deepl_body['source_lang'] = romanised_lang
 
     try:
@@ -1139,6 +1159,16 @@ def history(user_id):
     return payload
 
 
+@app.route('/history', methods=['DELETE'])
+@require_user
+def clear_history(user_id):
+    """Forget the user's Recently Translated list. The translations themselves
+    are shared by everyone, so they stay."""
+    with db.connect() as conn:
+        conn.execute('DELETE FROM listen_history WHERE spotify_id = ?', (user_id,))
+    return ('', 204)
+
+
 FAVOURITE_KEYS = ('track_id', 'song', 'artist', 'album', 'album_art',
                   'duration_ms', 'source_lang', 'added_at')
 
@@ -1211,12 +1241,13 @@ def request_song(user_id):
 
 def user_prefs(conn, user_id):
     row = conn.execute(
-        'SELECT target_lang, auto_translate FROM users WHERE spotify_id = ?',
+        'SELECT target_lang, auto_translate, onboarded FROM users WHERE spotify_id = ?',
         (user_id,)
     ).fetchone()
     if not row:
-        return {'target_lang': 'EN', 'auto_translate': True}
-    return {'target_lang': row[0], 'auto_translate': bool(row[1])}
+        return {'target_lang': 'EN', 'auto_translate': True, 'onboarded': False}
+    return {'target_lang': row[0], 'auto_translate': bool(row[1]),
+            'onboarded': bool(row[2])}
 
 
 @app.route('/prefs')
@@ -1239,10 +1270,11 @@ def update_prefs(user_id):
         if body['target_lang'] not in TARGET_LANGUAGES:
             return jsonify({'error': 'Unsupported target_lang'}), 400
         changes['target_lang'] = body['target_lang']
-    if 'auto_translate' in body:
-        if not isinstance(body['auto_translate'], bool):
-            return jsonify({'error': 'auto_translate must be true or false'}), 400
-        changes['auto_translate'] = body['auto_translate']
+    for flag in ('auto_translate', 'onboarded'):
+        if flag in body:
+            if not isinstance(body[flag], bool):
+                return jsonify({'error': f'{flag} must be true or false'}), 400
+            changes[flag] = body[flag]
 
     # the user row may predate this database (e.g. a session from before it)
     save_user(user_id)

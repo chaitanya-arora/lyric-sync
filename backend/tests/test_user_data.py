@@ -252,14 +252,16 @@ def test_song_request_needs_the_track_details(user):
 # --- preferences ---
 
 def test_prefs_default_to_english_with_translation_on(user):
-    assert user.get('/prefs').get_json() == {'target_lang': 'EN', 'auto_translate': True}
+    assert user.get('/prefs').get_json() == {'target_lang': 'EN', 'auto_translate': True,
+                                             'onboarded': False}
 
 
 def test_prefs_update_only_what_is_sent(user):
     user.put('/prefs', json={'auto_translate': False})
     resp = user.put('/prefs', json={'target_lang': 'FR'})
-    assert resp.get_json() == {'target_lang': 'FR', 'auto_translate': False}
-    assert user.get('/prefs').get_json() == {'target_lang': 'FR', 'auto_translate': False}
+    expected = {'target_lang': 'FR', 'auto_translate': False, 'onboarded': False}
+    assert resp.get_json() == expected
+    assert user.get('/prefs').get_json() == expected
 
 
 @pytest.mark.parametrize('body', [
@@ -267,6 +269,7 @@ def test_prefs_update_only_what_is_sent(user):
     {'target_lang': "EN'; DROP TABLE users; --"},
     {'auto_translate': 'yes'},
     {'auto_translate': 1},
+    {'onboarded': 'yes'},
     ['auto_translate'],
 ])
 def test_prefs_reject_bad_values(user, body):
@@ -279,3 +282,36 @@ def test_prefs_ignore_unknown_fields(user):
     with db.connect() as conn:
         ids = [row[0] for row in conn.execute('SELECT spotify_id FROM users').fetchall()]
     assert ids == ['cherry']
+
+
+def test_clearing_history_only_clears_your_own(client, database):
+    sign_in(client, 'cherry')
+    listen(client, 'A')
+    sign_in(client, 'someone-else')
+    listen(client, 'B')
+    assert client.delete('/history').status_code == 204
+    assert history(client)['tracks'] == []
+    sign_in(client, 'cherry')
+    assert [t['track_id'] for t in history(client)['tracks']] == ['A']
+
+
+def test_finishing_onboarding_is_remembered(user):
+    user.put('/prefs', json={'onboarded': True, 'target_lang': 'HI'})
+    assert user.get('/prefs').get_json()['onboarded'] is True
+
+
+def test_onboarded_is_added_to_a_users_table_from_before_it(database):
+    """Live databases made their users table before the column existed."""
+    with db.connect() as conn:
+        conn.execute('DROP TABLE users')
+        conn.execute(
+            "CREATE TABLE users (spotify_id TEXT PRIMARY KEY, display_name TEXT, "
+            "target_lang TEXT NOT NULL DEFAULT 'EN', "
+            "auto_translate BOOLEAN NOT NULL DEFAULT TRUE, "
+            "created_at BIGINT NOT NULL, last_seen_at BIGINT NOT NULL)")
+        conn.execute("INSERT INTO users VALUES ('old', 'Old', 'EN', TRUE, 1, 1)")
+    db.init_db()
+    db.init_db()   # and running again changes nothing
+    with db.connect() as conn:
+        row = conn.execute("SELECT onboarded FROM users WHERE spotify_id = 'old'").fetchone()
+    assert bool(row[0]) is False

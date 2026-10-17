@@ -802,3 +802,44 @@ def test_play_context_rejects_other_uris(playback, uri):
     resp = client.post('/playback', json={'action': 'play_context', 'context_uri': uri})
     assert resp.status_code == 400
     assert calls == []
+
+
+def test_romanised_hindi_into_hindi_is_left_to_deepl(translate):
+    """DeepL refuses a source language that matches the target."""
+    client, stub = translate
+    lines = ['Main tumse pyaar karta hoon', 'Tum bin jeena mushkil hai',
+             'Kya hua jo raat dhal gayi', 'Mujhe kuch nahi chahiye']
+    stub['lyrics'] = {'found': True, 'synced': True,
+                      'lyrics': [{'time_ms': i, 'text': t} for i, t in enumerate(lines)]}
+    stub['deepl'] = DeepLResponse(200, {'translations': [
+        {'text': 'x', 'detected_source_language': 'HI'}] * len(lines)})
+    client.get(TRANSLATE_URL + '&target_lang=HI')
+    assert 'source_lang' not in stub['deepl_bodies'][0]
+
+
+# --- playing Favourites ---
+
+def test_play_tracks_starts_from_the_chosen_song(client, spotify, monkeypatch):
+    bodies = []
+    monkeypatch.setattr(spotify, 'spotify_put',
+                        lambda u, **kw: bodies.append(kw.get('json')) or FakeResponse(204))
+    client.post('/playback', json={'action': 'play_tracks',
+                                   'track_ids': ['A1', 'B2', 'C3'], 'offset': 1})
+    assert bodies == [{'uris': ['spotify:track:A1', 'spotify:track:B2', 'spotify:track:C3'],
+                       'offset': {'position': 1}}]
+
+
+@pytest.mark.parametrize('body', [
+    {'track_ids': []},
+    {'track_ids': 'A1'},
+    {'track_ids': ['A1', '../me']},
+    {'track_ids': ['A1'] * 101},
+    {'track_ids': ['A1', 'B2'], 'offset': 2},
+    {'track_ids': ['A1', 'B2'], 'offset': -1},
+    {'track_ids': ['A1', 'B2'], 'offset': True},
+])
+def test_play_tracks_rejects_bad_lists(playback, body):
+    client, calls = playback
+    resp = client.post('/playback', json={'action': 'play_tracks', **body})
+    assert resp.status_code == 400
+    assert calls == []

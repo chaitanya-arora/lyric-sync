@@ -26,7 +26,7 @@ Tools with similar real-time translation existed, but the ones I found had weak 
 **Lyrics, understood**
 - Synced lyrics for whatever's playing on Spotify, with each line's translation underneath and the current line highlighted
 - Translation into 25 languages (English by default), set once in Settings
-- Romanised Hindi and Punjabi ("Tere bina kya wajood mera") detected and translated properly, where translation services usually give up
+- Romanised Hindi and Punjabi detected and translated properly, where translation services usually give up
 - Every language has its own colour, which Now Playing and the player take on while that language is playing
 - A per-song timing nudge for lyrics that run a beat early or late
 

@@ -1129,31 +1129,480 @@ function renderFavourites() {
 }
 
 // ─────────────────────────────────────────
+//  DISCOVER: charts, Home, Search, Explore
+// ─────────────────────────────────────────
+
+// The countries Explore offers — must match discover.COUNTRIES on the
+// server. [name, language of most of its charts, latitude, longitude]
+const COUNTRIES = {
+  ar: ['Argentina', 'ES', -34.6, -63.6], au: ['Australia', 'EN', -25.3, 133.8],
+  br: ['Brazil', 'PT', -10.8, -52.9], ca: ['Canada', 'EN', 56.1, -106.3],
+  cl: ['Chile', 'ES', -35.7, -71.5], co: ['Colombia', 'ES', 4.6, -74.1],
+  de: ['Germany', 'DE', 51.2, 10.4], eg: ['Egypt', 'AR', 26.8, 30.8],
+  es: ['Spain', 'ES', 40.4, -3.7], fr: ['France', 'FR', 46.6, 2.4],
+  gb: ['United Kingdom', 'EN', 54.0, -2.5], gh: ['Ghana', 'EN', 7.9, -1.0],
+  gr: ['Greece', 'EL', 39.1, 21.8], hk: ['Hong Kong', 'ZH', 22.3, 114.2],
+  id: ['Indonesia', 'ID', -2.5, 118.0], ie: ['Ireland', 'EN', 53.4, -8.2],
+  il: ['Israel', 'HE', 31.0, 34.9], in: ['India', 'HI', 22.0, 79.0],
+  it: ['Italy', 'IT', 42.8, 12.5], jp: ['Japan', 'JA', 36.2, 138.3],
+  ke: ['Kenya', 'SW', 0.0, 37.9], kr: ['South Korea', 'KO', 36.5, 127.9],
+  lk: ['Sri Lanka', 'SI', 7.9, 80.8], ma: ['Morocco', 'AR', 31.8, -7.1],
+  mx: ['Mexico', 'ES', 23.6, -102.5], my: ['Malaysia', 'MS', 4.2, 102.0],
+  ng: ['Nigeria', 'EN', 9.1, 8.7], nl: ['Netherlands', 'NL', 52.1, 5.3],
+  np: ['Nepal', 'NE', 28.4, 84.1], nz: ['New Zealand', 'EN', -41.5, 172.8],
+  pe: ['Peru', 'ES', -9.2, -75.0], ph: ['Philippines', 'TL', 12.9, 121.8],
+  pk: ['Pakistan', 'UR', 30.4, 69.3], pl: ['Poland', 'PL', 51.9, 19.1],
+  pt: ['Portugal', 'PT', 39.6, -8.0], ru: ['Russia', 'RU', 55.8, 37.6],
+  sa: ['Saudi Arabia', 'AR', 23.9, 45.1], se: ['Sweden', 'SV', 60.1, 18.6],
+  th: ['Thailand', 'TH', 15.9, 100.9], tr: ['Turkey', 'TR', 39.0, 35.2],
+  tw: ['Taiwan', 'ZH', 23.7, 121.0], ua: ['Ukraine', 'UK', 48.4, 31.2],
+  us: ['United States', 'EN', 37.1, -95.7], vn: ['Vietnam', 'VI', 14.1, 108.3],
+  za: ['South Africa', 'EN', -30.6, 22.9]
+}
+
+// The language tiles: each opens one country's chart.
+const LANGUAGE_TILES = [
+  { country: 'fr', title: 'French', lang: 'FR' },
+  { country: 'kr', title: 'K-Pop', lang: 'KO' },
+  { country: 'in', title: 'Bollywood & Punjabi', lang: 'HI' },
+  { country: 'mx', title: 'Latin', lang: 'ES' },
+  { country: 'ng', title: 'Afrobeats', hue: 48 },
+  { country: 'jp', title: 'J-Pop', lang: 'JA' },
+  { country: 'tw', title: 'C-Pop', lang: 'ZH' },
+  { country: 'eg', title: 'Arabic Pop', lang: 'AR' },
+  { country: 'it', title: 'Italian', lang: 'IT' },
+  { country: 'br', title: 'Brazilian', lang: 'PT' },
+  { country: 'tr', title: 'Turkish', lang: 'TR' },
+  { country: 'id', title: 'Indonesian', lang: 'ID' }
+]
+
+// Which chart Top Picks uses for each language you listen to.
+const LANGUAGE_COUNTRY = {
+  FR: 'fr', HI: 'in', PA: 'in', UR: 'pk', KO: 'kr', ES: 'mx', JA: 'jp', ZH: 'tw',
+  AR: 'eg', IT: 'it', PT: 'br', TR: 'tr', ID: 'id', DE: 'de', RU: 'ru', NL: 'nl',
+  PL: 'pl', SV: 'se', EL: 'gr', HE: 'il', TH: 'th', VI: 'vn', UK: 'ua', TL: 'ph'
+}
+const DEFAULT_PICKS = ['FR', 'HI', 'KO', 'ES', 'PA']
+
+function flag(country) {
+  return [...country.toUpperCase()].map(c => String.fromCodePoint(0x1f1a5 + c.charCodeAt(0))).join('')
+}
+
+const chartCache = {}
+
+async function fetchChart(country) {
+  if (chartCache[country]) return chartCache[country]
+  const res = await fetch(`/discover/chart/${country}`)
+  if (!res.ok) throw new Error(`chart ${country}: ${res.status}`)
+  chartCache[country] = await res.json()
+  return chartCache[country]
+}
+
+// Chart songs come from Apple: find each on Spotify when it's played.
+async function playChartSong(song, country, button) {
+  if (button) button.classList.add('busy')
+  try {
+    const res = await fetch('/discover/match', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ song: song.song, artist: song.artist, country })
+    })
+    if (res.status === 404) {
+      showToast(`Couldn't find “${song.song}” on Spotify.`)
+      return
+    }
+    if (!res.ok) throw new Error(`match: ${res.status}`)
+    const { track_id } = await res.json()
+    await playTrack({ track_id })
+  } catch (e) {
+    showToast(UNREACHABLE)
+  } finally {
+    if (button) button.classList.remove('busy')
+  }
+}
+
+// A song row for charts and search results. `onPlay` starts it.
+function songRow(song, index, onPlay) {
+  const row = document.createElement('button')
+  row.type = 'button'
+  row.className = 'song-row'
+  row.title = `Play ${song.song}`
+
+  const num = document.createElement('span')
+  num.className = 'song-row-num'
+  num.textContent = index + 1
+
+  const art = document.createElement('img')
+  art.className = 'song-row-art'
+  art.alt = ''
+  art.loading = 'lazy'
+  if (song.album_art) art.src = song.album_art
+
+  const text = document.createElement('span')
+  text.className = 'song-row-text'
+  const title = document.createElement('span')
+  title.className = 'song-row-title'
+  title.textContent = song.song
+  const artist = document.createElement('span')
+  artist.className = 'song-row-artist'
+  artist.textContent = song.artist
+  text.append(title, artist)
+
+  const play = document.createElement('span')
+  play.className = 'song-row-play'
+  play.innerHTML = PLAY_ICON
+
+  row.append(num, art, text)
+  if (song.duration_ms) {
+    const time = document.createElement('span')
+    time.className = 'song-row-time'
+    time.textContent = formatTime(song.duration_ms)
+    row.appendChild(time)
+  }
+  row.appendChild(play)
+  row.addEventListener('click', () => onPlay(row))
+  return row
+}
+
+function listMessage(list, text) {
+  list.innerHTML = ''
+  const message = document.createElement('p')
+  message.className = 'list-message'
+  message.textContent = text
+  list.appendChild(message)
+}
+
+async function renderChartInto(list, country, limit) {
+  listMessage(list, 'Loading…')
+  try {
+    const chart = await fetchChart(country)
+    list.innerHTML = ''
+    chart.songs.slice(0, limit).forEach((song, i) => {
+      list.appendChild(songRow(song, i, row => playChartSong(song, country, row)))
+    })
+    if (!chart.songs.length) listMessage(list, 'No chart for here right now.')
+    return chart
+  } catch (e) {
+    listMessage(list, "Couldn't load this chart — try again in a moment.")
+    return null
+  }
+}
+
+function paintTile(tile, spec) {
+  tile.style.setProperty('--lang-h', spec.hue ?? langHue(spec.lang))
+}
+
+function languageTile(spec) {
+  const tile = document.createElement('a')
+  tile.className = 'lang-tile'
+  tile.href = `#/chart/${spec.country}`
+  paintTile(tile, spec)
+  const title = document.createElement('span')
+  title.className = 'lang-tile-title'
+  title.textContent = spec.title
+  const sub = document.createElement('span')
+  sub.className = 'lang-tile-sub'
+  sub.textContent = `${flag(spec.country)} Top songs in ${COUNTRIES[spec.country][0]}`
+  tile.append(title, sub)
+  return tile
+}
+
+// ── chart page ──
+async function loadChartPage(country) {
+  const [name, lang] = COUNTRIES[country]
+  const tile = LANGUAGE_TILES.find(t => t.country === country)
+  paintTile(document.getElementById('chart-hero'), tile || { lang })
+  document.getElementById('chart-flag').textContent = flag(country)
+  document.getElementById('chart-title').textContent = tile ? tile.title : name
+  document.getElementById('chart-subtitle').textContent = `The most played songs in ${name} today`
+  renderChartInto(document.getElementById('chart-list'), country, 25)
+}
+
+// ── home ──
+let homeName = null
+
+function greeting() {
+  const hour = new Date().getHours()
+  const part = hour < 5 ? 'evening' : hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening'
+  return homeName ? `Good ${part}, ${homeName}` : `Good ${part}`
+}
+
+let homeTilesBuilt = false
+let picksLanguage = null
+
+async function loadHome() {
+  document.getElementById('home-greeting').textContent = greeting()
+  if (!homeName) {
+    fetch('/me').then(r => r.ok ? r.json() : null).then(me => {
+      if (me && me.display_name) {
+        homeName = me.display_name.split(' ')[0]
+        document.getElementById('home-greeting').textContent = greeting()
+      }
+    }).catch(() => {})
+  }
+
+  if (!homeTilesBuilt) {
+    const row = document.getElementById('home-tiles')
+    LANGUAGE_TILES.forEach(spec => row.appendChild(languageTile(spec)))
+    homeTilesBuilt = true
+  }
+
+  // jump back in: the latest few from Recently Translated
+  let languages = []
+  try {
+    const res = await fetch('/history?limit=6')
+    if (res.ok) {
+      const data = await res.json()
+      languages = (data.languages || []).map(l => l.lang)
+      const shelf = document.getElementById('home-recent-shelf')
+      const grid = document.getElementById('home-recent')
+      shelf.hidden = !data.tracks.length
+      grid.innerHTML = ''
+      data.tracks.forEach(track => grid.appendChild(jumpCard(track)))
+    }
+  } catch (e) { /* the shelf stays hidden */ }
+
+  // top picks: the languages you actually listen to, or a few to start with
+  const picks = [...new Set([...languages, ...DEFAULT_PICKS])]
+    .filter(lang => LANGUAGE_COUNTRY[lang])
+    .slice(0, 5)
+  if (!picks.includes(picksLanguage)) picksLanguage = picks[0]
+  const chips = document.getElementById('picks-chips')
+  chips.innerHTML = ''
+  picks.forEach(lang => {
+    const chip = document.createElement('button')
+    chip.type = 'button'
+    chip.className = 'chip lang-chip'
+    chip.textContent = langName(lang)
+    chip.setAttribute('aria-pressed', String(lang === picksLanguage))
+    paintLangPill(chip, lang)
+    chip.addEventListener('click', () => {
+      picksLanguage = lang
+      chips.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-pressed', String(c === chip)))
+      renderPicks()
+    })
+    chips.appendChild(chip)
+  })
+  renderPicks()
+}
+
+function jumpCard(track) {
+  const card = document.createElement('button')
+  card.type = 'button'
+  card.className = 'jump-card'
+  card.title = `Play ${track.song}`
+  const art = songArt(track)
+  art.classList.add('jump-art')
+  const text = document.createElement('span')
+  text.className = 'jump-text'
+  const title = document.createElement('span')
+  title.className = 'jump-title'
+  title.textContent = track.song
+  text.appendChild(title)
+  if (track.source_lang) text.appendChild(langPill(track.source_lang, track.target_lang))
+  card.append(art, text)
+  card.addEventListener('click', () => playTrack(track))
+  return card
+}
+
+async function renderPicks() {
+  const row = document.getElementById('home-picks')
+  const country = LANGUAGE_COUNTRY[picksLanguage]
+  row.innerHTML = ''
+  try {
+    const chart = await fetchChart(country)
+    if (LANGUAGE_COUNTRY[picksLanguage] !== country) return   // chip changed meanwhile
+    chart.songs.slice(0, 10).forEach(song => {
+      const card = document.createElement('button')
+      card.type = 'button'
+      card.className = 'pick-card'
+      card.title = `Play ${song.song}`
+      const art = songArt({ album_art: song.album_art, source_lang: picksLanguage })
+      const play = document.createElement('span')
+      play.className = 'song-card-play'
+      play.innerHTML = PLAY_ICON
+      art.appendChild(play)
+      const title = document.createElement('span')
+      title.className = 'song-card-title'
+      title.textContent = song.song
+      const artist = document.createElement('span')
+      artist.className = 'song-card-artist'
+      artist.textContent = song.artist
+      card.append(art, title, artist)
+      card.addEventListener('click', () => playChartSong(song, country, card))
+      row.appendChild(card)
+    })
+  } catch (e) {
+    listMessage(row, "Couldn't load picks — try again in a moment.")
+  }
+}
+
+// ── search ──
+let browseBuilt = false
+let searchTimer = null
+let searchSeq = 0
+const searchInput = document.getElementById('search-input')
+
+function openSearch() {
+  if (!browseBuilt) {
+    const grid = document.getElementById('browse-tiles')
+    LANGUAGE_TILES.forEach(spec => grid.appendChild(languageTile(spec)))
+    browseBuilt = true
+  }
+  setTimeout(() => searchInput.focus(), 50)
+}
+
+searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(runSearch, 300)
+})
+
+async function runSearch() {
+  const query = searchInput.value.trim()
+  const results = document.getElementById('search-results')
+  const list = document.getElementById('search-list')
+  document.getElementById('search-browse').hidden = Boolean(query)
+  results.hidden = !query
+  if (!query) return
+
+  const seq = ++searchSeq   // only the latest search gets to paint
+  listMessage(list, 'Searching…')
+  try {
+    const res = await fetch(`/search?q=${encodeURIComponent(query)}`)
+    if (!res.ok) throw new Error(`search: ${res.status}`)
+    const { tracks } = await res.json()
+    if (seq !== searchSeq) return
+    list.innerHTML = ''
+    if (!tracks.length) {
+      listMessage(list, `Nothing found for “${query}”.`)
+      return
+    }
+    tracks.forEach((track, i) => list.appendChild(songRow(track, i, () => playTrack(track))))
+  } catch (e) {
+    if (seq === searchSeq) listMessage(list, "Couldn't search right now — try again in a moment.")
+  }
+}
+
+// ── explore: spin the globe ──
+const GLOBE_SCRIPT = 'https://cdn.jsdelivr.net/npm/globe.gl@2.46.2/dist/globe.gl.min.js'
+const GLOBE_TEXTURE = 'https://cdn.jsdelivr.net/npm/three-globe@2/example/img/earth-night.jpg'
+
+let globe = null
+let globeLoading = null
+let exploreCountry = null
+
+function loadGlobeLibrary() {
+  if (window.Globe) return Promise.resolve()
+  globeLoading = globeLoading || new Promise((resolve, reject) => {
+    const script = document.createElement('script')
+    script.src = GLOBE_SCRIPT
+    script.onload = resolve
+    script.onerror = reject
+    document.head.appendChild(script)
+  })
+  return globeLoading
+}
+
+function sizeGlobe() {
+  if (!globe) return
+  const box = document.getElementById('globe')
+  globe.width(box.clientWidth).height(box.clientHeight)
+}
+
+window.addEventListener('resize', sizeGlobe)
+
+async function openExplore() {
+  if (globe) {
+    sizeGlobe()
+    return
+  }
+  try {
+    await loadGlobeLibrary()
+  } catch (e) {
+    showToast("Couldn't load the globe — check your connection.")
+    return
+  }
+  const points = Object.entries(COUNTRIES).map(([code, [name, lang, lat, lng]]) =>
+    ({ code, name, lat, lng, color: `hsl(${langHue(lang)}, 75%, 65%)` }))   // three.js wants the comma form
+
+  globe = Globe()(document.getElementById('globe'))
+    .backgroundColor('rgba(0,0,0,0)')
+    .globeImageUrl(GLOBE_TEXTURE)
+    .showAtmosphere(true)
+    .atmosphereColor('#1db954')
+    .atmosphereAltitude(0.18)
+    .pointsData(points)
+    .pointColor('color')
+    .pointAltitude(d => d.code === exploreCountry ? 0.14 : 0.04)
+    .pointRadius(d => d.code === exploreCountry ? 1.1 : 0.75)
+    .pointLabel(d => `${flag(d.code)} ${d.name}`)
+    .onPointClick(d => selectCountry(d.code))
+  globe.controls().autoRotate = true
+  globe.controls().autoRotateSpeed = 0.5
+  globe.pointOfView({ lat: 20, lng: 60, altitude: 2.3 })
+  sizeGlobe()
+}
+
+function selectCountry(code) {
+  exploreCountry = code
+  const [name, lang, lat, lng] = COUNTRIES[code]
+  globe.controls().autoRotate = false
+  globe.pointOfView({ lat, lng, altitude: 1.7 }, 1600)
+  globe.pointsData(globe.pointsData())   // redraw so the chosen one stands up
+
+  document.getElementById('explore-intro').classList.add('docked')
+  document.getElementById('view-explore').classList.add('has-panel')
+  const panel = document.getElementById('explore-panel')
+  panel.hidden = false
+  setTimeout(sizeGlobe, 420)   // once the globe has moved over for the panel
+  paintTile(panel, { lang })
+  document.getElementById('explore-flag').textContent = flag(code)
+  document.getElementById('explore-name').textContent = name
+  document.getElementById('explore-lang').textContent = `Most played in ${langName(lang)}`
+  renderChartInto(document.getElementById('explore-list'), code, 15)
+}
+
+document.getElementById('spin-btn').addEventListener('click', () => {
+  if (!globe) return
+  const codes = Object.keys(COUNTRIES).filter(c => c !== exploreCountry)
+  const pick = codes[Math.floor(Math.random() * codes.length)]
+  // a quick spin first, so it feels like the globe chose
+  globe.controls().autoRotate = true
+  globe.controls().autoRotateSpeed = 30
+  setTimeout(() => {
+    globe.controls().autoRotateSpeed = 0.5
+    selectCountry(pick)
+  }, 900)
+})
+
+// ─────────────────────────────────────────
 //  PAGES
 // ─────────────────────────────────────────
 
 // Hash routes, so the back button and a refresh keep you on the same page.
-const PLACEHOLDER_TITLES = { home: 'Home', search: 'Search' }
-const VIEWS = ['now-playing', 'recent', 'settings', 'favourites', ...Object.keys(PLACEHOLDER_TITLES)]
+// A chart page carries its country: #/chart/fr.
+const VIEWS = ['now-playing', 'recent', 'settings', 'favourites', 'home', 'search', 'explore', 'chart']
+
+function currentRoute() {
+  const [name, param] = location.hash.replace(/^#\/?/, '').split('/')
+  if (name === 'chart' && !(param in COUNTRIES)) return { view: 'home' }
+  return VIEWS.includes(name) ? { view: name, param } : { view: 'now-playing' }
+}
 
 function currentView() {
-  const name = location.hash.replace(/^#\/?/, '')
-  return VIEWS.includes(name) ? name : 'now-playing'
+  return currentRoute().view
 }
 
 function route() {
-  const view = currentView()
-  document.getElementById('view-now-playing').hidden = view !== 'now-playing'
-  document.getElementById('view-recent').hidden = view !== 'recent'
-  document.getElementById('view-settings').hidden = view !== 'settings'
-  document.getElementById('view-favourites').hidden = view !== 'favourites'
+  const { view, param } = currentRoute()
+  for (const name of VIEWS) {
+    document.getElementById(`view-${name}`).hidden = name !== view
+  }
 
-  const placeholder = PLACEHOLDER_TITLES[view]
-  document.getElementById('view-placeholder').hidden = !placeholder
-  if (placeholder) document.getElementById('placeholder-title').textContent = placeholder
-
+  // a chart page lights up the nav item it was reached from
+  const navView = view === 'chart' ? 'home' : view
   document.querySelectorAll('.nav-link').forEach(link => {
-    const active = link.dataset.view === view
+    const active = link.dataset.view === navView
     link.classList.toggle('active', active)
     if (active) link.setAttribute('aria-current', 'page')
     else link.removeAttribute('aria-current')
@@ -1163,6 +1612,10 @@ function route() {
   if (view === 'recent') loadRecent()
   if (view === 'settings') loadSettings()
   if (view === 'favourites') loadFavourites()
+  if (view === 'home') loadHome()
+  if (view === 'search') openSearch()
+  if (view === 'chart') loadChartPage(param)
+  if (view === 'explore') openExplore()
   if (view === 'now-playing') recentreLyrics()
 }
 

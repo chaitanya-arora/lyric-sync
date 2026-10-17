@@ -70,7 +70,7 @@ const NOTE_ICONS = [
   '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3z"/></svg>',
   '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 3 9 5.5v9.06A3.5 3.5 0 1 0 11 18V9.3l8-1.66v5.42A3.5 3.5 0 1 0 21 16z"/></svg>'
 ]
-const FLOAT_COLOURS = ['#f2a3a0', '#f7b482', '#f9d49e', '#cdeb8b', '#abd5d2', '#afbde2', '#c2aae0', '#e4bfee', '#f6b8d3']
+const FLOAT_COLOURS = ['#ff5a5f', '#ff8a3d', '#ffb627', '#9be22d', '#22c3b1', '#5b8cff', '#9b5cff', '#d65cf5', '#ff4f9a']
 
 // Aura orbs — brighter, more vivid than before
 const ORBS = [
@@ -317,58 +317,69 @@ function langLabel(code) {
   return LANG_LABELS[base] || base
 }
 
-// Every language has its own colour. The palette is the nine Browse All
-// colours from the Figma file — a saturated core and a bright pastel edge —
-// plus three more in the same spirit for languages that need their own.
+// Every language has one colour, used wherever that language appears: its
+// pill, tile, pin, the lyric box and the translations. They're the Browse
+// All colours from the Figma file at full strength, plus three more.
 const SWATCHES = {
-  rose: ['#e0524d', '#f2a3a0'], tangerine: ['#f07a3a', '#f7b482'],
-  mango: ['#f4a93a', '#f9d49e'], lime: ['#8cc832', '#cdeb8b'],
-  seafoam: ['#3faea5', '#abd5d2'], periwinkle: ['#4a72e0', '#afbde2'],
-  violet: ['#8a4fe0', '#c2aae0'], orchid: ['#c058dd', '#e4bfee'],
-  bubblegum: ['#e2528f', '#f6b8d3'],
-  sky: ['#2ea8e0', '#a9dcf3'], coral: ['#ff6b57', '#ffbcb2'], sunflower: ['#e9b824', '#f7e19a']
+  rose: '#ff5a5f', tangerine: '#ff8a3d', mango: '#ffb627', lime: '#9be22d',
+  seafoam: '#22c3b1', periwinkle: '#5b8cff', violet: '#9b5cff', orchid: '#d65cf5',
+  bubblegum: '#ff4f9a', sky: '#2bb3ff', cherry: '#ef3b50', sunflower: '#ffd23f'
 }
 
 const LANG_SWATCH = {
   FR: 'rose', KO: 'tangerine', HI: 'mango', ES: 'lime', EN: 'seafoam', JA: 'periwinkle',
-  ZH: 'violet', AR: 'orchid', IT: 'bubblegum', PA: 'sunflower', PT: 'sky', TR: 'coral',
+  ZH: 'violet', AR: 'orchid', IT: 'bubblegum', PA: 'sunflower', PT: 'sky', TR: 'cherry',
   UR: 'orchid', DE: 'periwinkle', RU: 'sky', ID: 'sunflower', TH: 'tangerine', VI: 'lime',
-  TL: 'coral', NL: 'tangerine', PL: 'rose', SV: 'sky', EL: 'periwinkle', HE: 'violet'
+  TL: 'cherry', NL: 'tangerine', PL: 'rose', SV: 'sky', EL: 'periwinkle', HE: 'violet'
 }
 
-// the app's own colour when no language is in play
-const BRAND_SWATCH = 'violet'
+// LyricSync's own green, for when no language is in play
+const BRAND_COLOR = '#1ed760'
 
-function langSwatch(code) {
+function langColor(code) {
   const base = (code || '').split('-')[0]
+  if (!base) return BRAND_COLOR
   let name = LANG_SWATCH[base]
   if (!name) {
     // anything unlisted still gets a colour, the same one every time
     const names = Object.keys(SWATCHES)
     let hash = 0
     for (const ch of base) hash = (hash * 31 + ch.charCodeAt(0)) % names.length
-    name = base ? names[hash] : BRAND_SWATCH
+    name = names[hash]
   }
   return SWATCHES[name]
 }
 
-function paintSwatch(el, [core, soft]) {
-  el.style.setProperty('--lang-core', core)
-  el.style.setProperty('--lang-soft', soft)
+// Black or white, whichever reads better on the colour.
+function inkFor(hex) {
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map(c => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+  return luminance > 0.22 ? '#0b0c0f' : '#ffffff'
 }
 
-// The whole app takes on the colour of the language that's playing.
+function paintColor(el, color) {
+  el.style.setProperty('--lang-color', color)
+  el.style.setProperty('--lang-ink', inkFor(color))
+}
+
+// The song's colour belongs to the song: Now Playing and the player take on
+// the colour of the language being sung. Everywhere else stays LyricSync
+// green, so browsing India while a French song plays isn't painted rose.
 let accentLang = null
 function setAccent(code) {
   if (code === accentLang) return
   accentLang = code
-  const [core, soft] = code ? langSwatch(code) : SWATCHES[BRAND_SWATCH]
-  document.documentElement.style.setProperty('--accent', core)
-  document.documentElement.style.setProperty('--accent-soft', soft)
+  const color = langColor(code)
+  for (const id of ['view-now-playing', 'bottom-bar']) {
+    const el = document.getElementById(id)
+    el.style.setProperty('--accent', color)
+    el.style.setProperty('--accent-ink', inkFor(color))
+  }
 }
 
 function paintLangPill(el, code) {
-  paintSwatch(el, langSwatch(code))
+  paintColor(el, langColor(code))
 }
 
 function normaliseLyric(text) {
@@ -1378,7 +1389,7 @@ async function renderChartInto(list, country, limit) {
 }
 
 function paintTile(tile, spec) {
-  paintSwatch(tile, spec.swatch ? SWATCHES[spec.swatch] : langSwatch(spec.lang))
+  paintColor(tile, spec.swatch ? SWATCHES[spec.swatch] : langColor(spec.lang))
 }
 
 function languageTile(spec) {
@@ -1608,7 +1619,7 @@ function pinElement(d) {
   const pin = document.createElement('button')
   pin.type = 'button'
   pin.className = 'globe-pin'
-  paintSwatch(pin, langSwatch(d.lang))
+  paintColor(pin, langColor(d.lang))
   pin.title = d.name
   pin.setAttribute('aria-label', `Explore ${d.name}`)
   pin.innerHTML = PIN_ICON
@@ -1636,7 +1647,7 @@ async function openExplore() {
     .backgroundColor('rgba(0,0,0,0)')
     .globeImageUrl(GLOBE_TEXTURE)
     .showAtmosphere(true)
-    .atmosphereColor('#8a4fe0')
+    .atmosphereColor('#1ed760')
     .atmosphereAltitude(0.18)
     .htmlElementsData(pins)
     .htmlLat('lat')
@@ -2383,7 +2394,7 @@ const ONBOARD_STEPS = {
 const ONBOARD_PANELS = ['onboard-demo', 'onboard-permissions', 'onboard-language']
 
 const WELCOME_ICONS = {
-  brand: '<svg viewBox="0 0 32 32"><path d="M7 12h18" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/><path d="M7 20h10.5" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" opacity=".5"/><circle cx="23" cy="20" r="2.1" fill="currentColor" opacity=".5"/></svg>',
+  brand: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M21 3 9 5.5v9.06A3.5 3.5 0 1 0 11 18V9.3l8-1.66v5.42A3.5 3.5 0 1 0 21 16z"/></svg>',
   translate: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.87 15.07l-2.54-2.51.03-.03A17.52 17.52 0 0 0 14.07 6H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7 1.62-4.33L19.12 17h-3.24z"/></svg>',
   spotify: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm4.59 14.42a.62.62 0 0 1-.86.21c-2.35-1.44-5.3-1.76-8.79-.96a.62.62 0 1 1-.28-1.22c3.81-.87 7.08-.5 9.72 1.12.29.18.39.56.21.85zm1.22-2.72a.78.78 0 0 1-1.07.26c-2.69-1.65-6.79-2.13-9.97-1.17a.78.78 0 1 1-.45-1.49c3.63-1.1 8.15-.57 11.23 1.33.37.23.48.71.26 1.07zm.11-2.83C14.69 8.95 9.38 8.77 6.3 9.71a.94.94 0 1 1-.54-1.79c3.53-1.07 9.4-.87 13.11 1.34a.94.94 0 0 1-.96 1.61z"/></svg>',
   globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9.5"/><path d="M2.5 12h19M12 2.5c2.6 2.6 3.9 5.8 3.9 9.5s-1.3 6.9-3.9 9.5c-2.6-2.6-3.9-5.8-3.9-9.5s1.3-6.9 3.9-9.5z"/></svg>'

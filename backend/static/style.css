@@ -1,16 +1,15 @@
 /* ─────────────────────────────────────────
    LYRICSYNC — DESIGN TOKENS
 
-   Every language has its own colour, from the nine Browse All colours in
-   the Figma file: a saturated core (--lang-core) and a bright pastel edge
-   (--lang-soft). The app's accent (--accent) takes on the colour of the
-   language that's playing, so it changes as you travel. Headings are set
-   in Righteous, everything you read in Inter.
+   Every language has one colour (--lang-color), from the Browse All
+   colours in the Figma file at full strength, with --lang-ink for text set
+   on it. The app's accent (--accent) is the colour of the language that's
+   playing, so it changes as you travel; LyricSync green when none is.
+   Headings are set in Righteous, everything you read in Inter.
 ───────────────────────────────────────── */
 
 /* registered so the accent can fade from one language to the next */
-@property --accent { syntax: '<color>'; inherits: true; initial-value: #8a4fe0; }
-@property --accent-soft { syntax: '<color>'; inherits: true; initial-value: #c2aae0; }
+@property --accent { syntax: '<color>'; inherits: true; initial-value: #1ed760; }
 
 :root {
   color-scheme: dark;
@@ -29,13 +28,12 @@
   --text-3: #7a776f;
   --text-4: #4f4d48;
 
-  /* the accent: the playing language's colour (violet when none) */
-  --accent: #8a4fe0;
-  --accent-soft: #c2aae0;
-  --accent-ink: #1b1024;          /* text on the pastel accent */
-  --accent-wash: color-mix(in srgb, var(--accent) 16%, transparent);
-  --accent-line: color-mix(in srgb, var(--accent-soft) 38%, transparent);
-  --accent-hover: color-mix(in srgb, var(--accent-soft) 82%, white);
+  /* the accent: the playing language's colour, LyricSync green when none */
+  --accent: #1ed760;
+  --accent-ink: #0b0c0f;          /* text set on the accent: dark or white */
+  --accent-wash: color-mix(in srgb, var(--accent) 18%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent) 45%, transparent);
+  --accent-hover: color-mix(in srgb, var(--accent) 85%, white);
 
   /* only for Connect with Spotify */
   --spotify-green: #1db954;
@@ -60,7 +58,16 @@
 
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
 
-  transition: --accent 0.9s ease, --accent-soft 0.9s ease;
+}
+
+/* the song's colour fades in as the song changes; the tints derived from
+   it are declared again here so they follow it rather than the green */
+#view-now-playing,
+#bottom-bar {
+  --accent-wash: color-mix(in srgb, var(--accent) 18%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent) 45%, transparent);
+  --accent-hover: color-mix(in srgb, var(--accent) 85%, white);
+  transition: --accent 0.9s ease;
 }
 
 /* ── reset ── */
@@ -85,7 +92,7 @@ body {
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent-soft);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 6px;
 }
@@ -139,18 +146,18 @@ body {
   text-decoration: none;
 }
 
-/* the mark: a lyric line and its translation, on all nine colours */
+/* the mark: a music note on LyricSync green */
 .brand-mark {
   width: 28px;
   height: 28px;
-  border-radius: 9px;
+  border-radius: 8px;
   display: grid;
   place-items: center;
-  background: conic-gradient(from 200deg, #e0524d, #f07a3a, #f4a93a, #8cc832, #3faea5,
-    #4a72e0, #8a4fe0, #c058dd, #e2528f, #e0524d);
+  background: #1ed760;
+  color: #0b0c0f;
 }
 
-.brand-mark svg { width: 70%; height: 70%; }
+.brand-mark svg { width: 62%; height: 62%; }
 
 .nav-link {
   display: flex;
@@ -168,7 +175,7 @@ body {
 .nav-link svg { width: 20px; height: 20px; opacity: 0.85; }
 .nav-link:hover { background: var(--ink-2); color: var(--text); }
 .nav-link.active { background: var(--ink-3); color: var(--text); }
-.nav-link.active svg { color: var(--accent-soft); opacity: 1; }
+.nav-link.active svg { color: var(--accent); opacity: 1; }
 
 /* ── library ── */
 #library-card {
@@ -219,7 +226,7 @@ body {
 .chip[aria-pressed="true"] {
   background: var(--accent-wash);
   border-color: var(--accent-line);
-  color: var(--accent-soft);
+  color: var(--accent);
 }
 
 #library-list {
@@ -288,7 +295,7 @@ body {
 .library-message button {
   display: inline-block;
   margin-top: 10px;
-  background: var(--accent-soft);
+  background: var(--accent);
   color: var(--accent-ink);
   border: none;
   border-radius: 999px;
@@ -309,7 +316,7 @@ body {
   border: 1px solid var(--accent-line);
   border-radius: var(--radius);
   background: var(--accent-wash);
-  color: var(--accent-soft);
+  color: var(--accent);
   font-size: 13px;
   font-weight: 600;
   flex-shrink: 0;
@@ -317,7 +324,7 @@ body {
 }
 
 #sidebar-settings-btn svg { width: 17px; height: 17px; }
-#sidebar-settings-btn:hover { background: color-mix(in srgb, var(--accent-soft) 22%, transparent); }
+#sidebar-settings-btn:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); }
 
 /* ─────────────────────────────────────────
    MAIN CARD
@@ -437,8 +444,8 @@ body {
 /* "FRE → ENG" — every language has its own hue */
 .lang-pill,
 #lang-badge {
-  --lang-core: #8a4fe0;
-  --lang-soft: #c2aae0;
+  --lang-color: #1ed760;
+  --lang-ink: #0b0c0f;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -448,9 +455,9 @@ body {
   text-transform: uppercase;
   padding: 4px 9px;
   border-radius: 999px;
-  color: var(--lang-soft);
-  background: color-mix(in srgb, var(--lang-core) 20%, transparent);
-  border: 1px solid color-mix(in srgb, var(--lang-soft) 30%, transparent);
+  color: var(--lang-ink);
+  background: var(--lang-color);
+  border: none;
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -476,7 +483,7 @@ body {
   flex-shrink: 0;
 }
 
-.toggle.on { background: var(--accent-soft); }
+.toggle.on { background: var(--accent); }
 
 .toggle-thumb {
   position: absolute;
@@ -545,7 +552,7 @@ body {
   font-weight: 400;
   line-height: 1.4;
   letter-spacing: 0.005em;
-  color: var(--accent-soft);   /* the language's colour, softly */
+  color: var(--accent);   /* the language's colour, softly */
   margin-top: 3px;
   overflow-wrap: anywhere;
 }
@@ -555,8 +562,8 @@ body {
 /* the line being sung sits in a grey box with a green bar, as in the Figma */
 .lyric-line.active {
   opacity: 1;
-  /* the box takes the language's colour, faintly */
-  background: color-mix(in srgb, var(--accent) 15%, rgba(255, 255, 255, 0.05));
+  /* the box takes the language's colour */
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
   border-left-color: var(--accent);
 }
 
@@ -617,7 +624,7 @@ body {
   justify-content: center;
   gap: 8px;
   padding: 11px 22px;
-  background: var(--accent-soft);
+  background: var(--accent);
   color: var(--accent-ink);
   border: none;
   border-radius: 999px;
@@ -630,7 +637,7 @@ body {
 .btn-primary:hover:not(:disabled),
 #state-action:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); }
 
-#state-action:disabled { background: var(--accent-wash); color: var(--accent-soft); cursor: default; }
+#state-action:disabled { background: var(--accent-wash); color: var(--accent); cursor: default; }
 
 /* ── song grids (Recently Translated) ── */
 .filter-chips {
@@ -651,9 +658,9 @@ body {
 
 /* a language chip takes its language's colour when chosen */
 .lang-chip[aria-pressed="true"] {
-  color: var(--lang-soft, var(--accent-soft));
-  background: color-mix(in srgb, var(--lang-core, var(--accent)) 22%, transparent);
-  border-color: color-mix(in srgb, var(--lang-soft, var(--accent-soft)) 40%, transparent);
+  color: var(--lang-ink, var(--accent-ink));
+  background: var(--lang-color, var(--accent));
+  border-color: transparent;
 }
 
 .lang-chip[aria-pressed="true"] .chip-count { color: inherit; opacity: 0.7; }
@@ -685,8 +692,8 @@ body {
 }
 
 .song-card-art {
-  --lang-core: #8a4fe0;
-  --lang-soft: #c2aae0;
+  --lang-color: #1ed760;
+  --lang-ink: #0b0c0f;
   position: relative;
   width: 100%;
   aspect-ratio: 1;
@@ -703,8 +710,8 @@ body {
   display: grid;
   place-items: center;
   font-size: 44px;
-  color: #fff;
-  background: radial-gradient(62% 75% at 50% 50%, var(--lang-core), var(--lang-soft));
+  color: var(--lang-ink);
+  background: radial-gradient(90% 100% at 25% 15%, color-mix(in srgb, var(--lang-color) 78%, white), var(--lang-color) 70%);
 }
 
 .song-card-play {
@@ -716,7 +723,7 @@ body {
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: var(--accent-soft);
+  background: var(--accent);
   color: var(--accent-ink);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
   opacity: 0;
@@ -739,7 +746,7 @@ body {
   text-overflow: ellipsis;
 }
 
-.song-card.playing .song-card-title { color: var(--accent-soft); }
+.song-card.playing .song-card-title { color: var(--accent); }
 
 .song-card-artist {
   max-width: 100%;
@@ -782,7 +789,7 @@ body {
   transition: transform 0.3s var(--ease);
 }
 
-#fav-btn[aria-pressed="true"] { color: var(--accent-soft); border-color: rgba(255, 143, 163, 0.35); }
+#fav-btn[aria-pressed="true"] { color: var(--accent); border-color: rgba(255, 143, 163, 0.35); }
 #fav-btn[aria-pressed="true"] svg { fill: currentColor; transform: scale(1.08); }
 
 #fav-hero {
@@ -802,7 +809,7 @@ body {
   color: #fff;
   background:
     radial-gradient(90% 90% at 25% 15%, #ffb3c1, transparent 60%),
-    radial-gradient(90% 90% at 85% 90%, var(--accent-soft), transparent 60%),
+    radial-gradient(90% 90% at 85% 90%, var(--accent), transparent 60%),
     #d9667f;
   box-shadow: 0 20px 50px rgba(217, 102, 127, 0.28);
 }
@@ -856,7 +863,7 @@ body {
 }
 
 .fav-row.playing .fav-num,
-.fav-row.playing .fav-song { color: var(--accent-soft); }
+.fav-row.playing .fav-song { color: var(--accent); }
 
 .fav-title {
   display: flex;
@@ -910,7 +917,7 @@ body {
   border: none;
   border-radius: 50%;
   background: none;
-  color: var(--accent-soft);
+  color: var(--accent);
   transition: background 0.15s, color 0.15s;
 }
 
@@ -1011,8 +1018,8 @@ body {
 }
 
 .lang-tile {
-  --lang-core: #8a4fe0;
-  --lang-soft: #c2aae0;
+  --lang-color: #1ed760;
+  --lang-ink: #0b0c0f;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -1022,9 +1029,8 @@ body {
   border-radius: var(--radius-lg);
   text-decoration: none;
   overflow: hidden;
-  background: radial-gradient(62% 75% at 50% 50%, var(--lang-core), var(--lang-soft));
-  color: #fff;
-  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.18);
+  background: radial-gradient(90% 100% at 25% 15%, color-mix(in srgb, var(--lang-color) 78%, white), var(--lang-color) 70%);
+  color: var(--lang-ink);
   transition: transform 0.25s var(--ease), box-shadow 0.25s;
 }
 
@@ -1041,7 +1047,8 @@ body {
 
 .lang-tile-sub {
   font-size: 12.5px;
-  color: rgba(255, 255, 255, 0.75);
+  font-weight: 500;
+  color: color-mix(in srgb, var(--lang-ink) 78%, transparent);
 }
 
 /* top picks: a row of artwork cards */
@@ -1135,7 +1142,7 @@ body {
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: var(--accent-soft);
+  background: var(--accent);
   color: var(--accent-ink);
   opacity: 0;
   transition: opacity 0.15s;
@@ -1189,8 +1196,8 @@ body {
 
 /* ── chart page ── */
 #chart-hero {
-  --lang-core: #8a4fe0;
-  --lang-soft: #c2aae0;
+  --lang-color: #1ed760;
+  --lang-ink: #0b0c0f;
   display: flex;
   align-items: flex-end;
   gap: clamp(18px, 2.4vw, 30px);
@@ -1205,7 +1212,7 @@ body {
   place-items: center;
   border-radius: var(--radius-lg);
   font-size: clamp(48px, 5vw, 72px);
-  background: radial-gradient(62% 75% at 50% 50%, var(--lang-core), var(--lang-soft));
+  background: radial-gradient(90% 100% at 25% 15%, color-mix(in srgb, var(--lang-color) 78%, white), var(--lang-color) 70%);
 }
 
 /* ── explore ── */
@@ -1214,14 +1221,15 @@ body {
 #globe {
   position: absolute;
   inset: 0;
+  overflow: hidden;   /* pins near the edge stay inside the globe's area */
   cursor: grab;
   transition: right 0.4s var(--ease);
 }
 
 /* flat map pins, tip on the country, in its language's colour */
 .globe-pin {
-  --lang-core: #8a4fe0;
-  --lang-soft: #c2aae0;
+  --lang-color: #1ed760;
+  --lang-ink: #0b0c0f;
   position: relative;
   width: 0;
   height: 0;
@@ -1237,7 +1245,7 @@ body {
   bottom: 0;
   width: 16px;
   height: 20px;
-  fill: var(--lang-soft);
+  fill: var(--lang-color);
   transform-origin: 50% 100%;
   transition: transform 0.25s var(--ease), fill 0.2s;
 }
@@ -1247,8 +1255,8 @@ body {
 
 .globe-pin.selected svg {
   transform: scale(1.8);
-  fill: var(--lang-core);
-  filter: drop-shadow(0 0 6px var(--lang-soft));
+  fill: var(--lang-color);
+  filter: drop-shadow(0 0 7px var(--lang-color));
 }
 
 #spin-btn:disabled { opacity: 0.6; cursor: default; transform: none; }
@@ -1260,6 +1268,7 @@ body {
 
 #explore-intro {
   position: absolute;
+  z-index: 5;
   left: clamp(20px, 3vw, 44px);
   top: clamp(20px, 3vw, 40px);
   max-width: 340px;
@@ -1278,9 +1287,10 @@ body {
 #explore-intro.docked .btn-primary { margin-top: 0; }
 
 #explore-panel {
-  --lang-core: #8a4fe0;
-  --lang-soft: #c2aae0;
+  --lang-color: #1ed760;
+  --lang-ink: #0b0c0f;
   position: absolute;
+  z-index: 5;   /* above the globe and its pins */
   top: 16px;
   right: 16px;
   bottom: 16px;
@@ -1301,9 +1311,11 @@ body {
   align-items: center;
   gap: 14px;
   padding: 18px;
-  background: radial-gradient(62% 75% at 50% 50%, var(--lang-core), var(--lang-soft));
-  border-bottom: 1px solid var(--line);
+  background: radial-gradient(90% 100% at 25% 15%, color-mix(in srgb, var(--lang-color) 78%, white), var(--lang-color) 70%);
+  color: var(--lang-ink);
 }
+
+#explore-country .eyebrow { color: color-mix(in srgb, var(--lang-ink) 70%, transparent); }
 
 #explore-flag .flag-icon { width: 46px; height: 34px; border-radius: 6px; }
 
@@ -1546,7 +1558,7 @@ body {
 
 /* shuffle, repeat, lyrics and queue light up when on, with a dot beneath */
 .ctrl-btn[aria-pressed="true"],
-.ctrl-btn.on { color: var(--accent-soft); }
+.ctrl-btn.on { color: var(--accent); }
 
 .ctrl-btn[aria-pressed="true"]::after,
 .ctrl-btn.on::after {
@@ -1614,7 +1626,7 @@ body {
 }
 
 #progress-hit:hover #progress-bar,
-#progress-hit.scrubbing #progress-bar { background: var(--accent-soft); }
+#progress-hit.scrubbing #progress-bar { background: var(--accent); }
 
 #progress-knob {
   position: absolute;
@@ -1692,7 +1704,7 @@ body {
 }
 
 .device-option:hover { background: var(--ink-3); }
-.device-option.active { color: var(--accent-soft); }
+.device-option.active { color: var(--accent); }
 .device-option svg { width: 18px; height: 18px; }
 .device-option:disabled { color: var(--text-4); cursor: default; background: none; }
 
@@ -1707,7 +1719,7 @@ body {
 
 #volume-slider {
   width: 150px;
-  accent-color: var(--accent-soft);
+  accent-color: var(--accent);
 }
 
 /* ── phones' tab bar (hidden on wider screens) ── */
@@ -1765,13 +1777,12 @@ body {
   width: 64px;
   height: 64px;
   border-radius: 18px;
-  background: conic-gradient(from 200deg, #e0524d, #f07a3a, #f4a93a, #8cc832, #3faea5,
-    #4a72e0, #8a4fe0, #c058dd, #e2528f, #e0524d);
+  background: #1ed760;
   color: #14101c;
   display: grid;
   place-items: center;
   margin-bottom: 22px;
-  box-shadow: 0 10px 34px rgba(138, 79, 224, 0.35);
+  box-shadow: 0 10px 34px rgba(30, 215, 96, 0.3);
 }
 
 #welcome-icon svg { width: 30px; height: 30px; }
@@ -1788,7 +1799,7 @@ body {
 #welcome-tagline {
   font-size: 16px;
   font-weight: 600;
-  color: var(--accent-soft);
+  color: var(--accent);
   margin-top: 6px;
 }
 
@@ -1815,7 +1826,7 @@ body {
   transition: width 0.35s var(--ease), background 0.35s;
 }
 
-#onboard-progress span.active { width: 44px; background: var(--accent-soft); }
+#onboard-progress span.active { width: 44px; background: var(--accent); }
 
 .onboard-panel {
   width: 100%;
@@ -1856,15 +1867,15 @@ body {
   top: 5px;
   width: 9px;
   height: 5px;
-  border-left: 2px solid var(--accent-soft);
-  border-bottom: 2px solid var(--accent-soft);
+  border-left: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
   transform: rotate(-45deg);
 }
 
 .onboard-panel-note {
   font-size: 13.5px;
   font-weight: 500;
-  color: var(--accent-soft);
+  color: var(--accent);
   margin-top: 12px;
 }
 
@@ -1898,7 +1909,7 @@ body {
 .demo-translation {
   font-size: 14.5px;
   font-weight: 500;
-  color: var(--accent-soft);
+  color: var(--accent);
 }
 
 #onboard-language .select-wrap select { width: 100%; }
@@ -1947,7 +1958,7 @@ body {
 }
 
 #welcome-note:empty { display: none; }
-#welcome-note a { color: var(--accent-soft); text-decoration: none; font-weight: 600; }
+#welcome-note a { color: var(--accent); text-decoration: none; font-weight: 600; }
 #welcome-note a:hover { text-decoration: underline; }
 
 /* ── welcome screen floating elements: "music" in many scripts ── */
@@ -1987,14 +1998,14 @@ body {
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, var(--accent-soft), #6ee79a);
+  background: linear-gradient(135deg, var(--accent), #6ee79a);
   color: var(--accent-ink);
   font-weight: 700;
   font-size: 16px;
 }
 
 #profile-name { font-size: 14.5px; font-weight: 600; }
-#profile-status { font-size: 12.5px; color: var(--accent-soft); }
+#profile-status { font-size: 12.5px; color: var(--accent); }
 
 .settings-group {
   max-width: 760px;
@@ -2197,7 +2208,7 @@ body {
   }
 
   #mobile-nav .nav-link svg { width: 22px; height: 22px; }
-  #mobile-nav .nav-link.active { color: var(--accent-soft); }
+  #mobile-nav .nav-link.active { color: var(--accent); }
 }
 
 /* ── reduced motion ── */
@@ -2226,5 +2237,5 @@ body {
 #chart-flag .flag-icon { width: 46%; height: auto; aspect-ratio: 4 / 3; border-radius: 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25); }
 
 /* artwork fallback and queue history marker, drawn rather than typed */
-.song-card-art.no-art svg { width: 38%; height: 38%; color: rgba(255, 255, 255, 0.92); }
+.song-card-art.no-art svg { width: 38%; height: 38%; color: var(--lang-ink); }
 .queue-num svg { width: 14px; height: 14px; vertical-align: middle; }

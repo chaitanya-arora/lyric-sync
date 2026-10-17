@@ -7,6 +7,7 @@ import requests
 import urllib.parse
 import re
 import json
+import time
 
 import db
 import discover
@@ -191,58 +192,56 @@ def get_access_token():
     return session.get('access_token')
 
 
-def spotify_get(url, **kwargs):
-    """GET a Spotify API URL, auto-refreshing token on 401. Returns requests.Response."""
+# A rate-limited request is retried once if Spotify asks for only a short
+# wait; anything longer is handed back as the 429 it is.
+MAX_RATE_LIMIT_WAIT = 2
+
+
+def spotify_request(method, url, **kwargs):
+    """Call the Spotify API as the signed-in user, refreshing the token on a
+    401 and riding out a brief 429. Returns the requests.Response, or None
+    when nobody is signed in."""
     token = get_access_token()
     if not token:
         return None
+    send = getattr(requests, method)
     headers = kwargs.pop('headers', {})
     headers['Authorization'] = f'Bearer {token}'
     kwargs.setdefault('timeout', SPOTIFY_TIMEOUT)
-    r = requests.get(url, headers=headers, **kwargs)
+    r = send(url, headers=headers, **kwargs)
     if r.status_code == 401:
         token = refresh_access_token()
         if not token:
             return r  # couldn't refresh — caller handles redirect to login
         headers['Authorization'] = f'Bearer {token}'
-        r = requests.get(url, headers=headers, **kwargs)
+        r = send(url, headers=headers, **kwargs)
+    if r.status_code == 429:
+        wait = retry_after(r)
+        app.logger.warning('Spotify rate limit on %s %s (retry after %ss)',
+                           method.upper(), urllib.parse.urlsplit(url).path, wait)
+        if wait is not None and wait <= MAX_RATE_LIMIT_WAIT:
+            time.sleep(wait)
+            r = send(url, headers=headers, **kwargs)
     return r
+
+
+def retry_after(response):
+    try:
+        return int(response.headers.get('Retry-After', ''))
+    except (TypeError, ValueError):
+        return None
+
+
+def spotify_get(url, **kwargs):
+    return spotify_request('get', url, **kwargs)
 
 
 def spotify_post(url, **kwargs):
-    """POST to a Spotify API URL, auto-refreshing token on 401. Returns requests.Response."""
-    token = get_access_token()
-    if not token:
-        return None
-    headers = kwargs.pop('headers', {})
-    headers['Authorization'] = f'Bearer {token}'
-    kwargs.setdefault('timeout', SPOTIFY_TIMEOUT)
-    r = requests.post(url, headers=headers, **kwargs)
-    if r.status_code == 401:
-        token = refresh_access_token()
-        if not token:
-            return r
-        headers['Authorization'] = f'Bearer {token}'
-        r = requests.post(url, headers=headers, **kwargs)
-    return r
+    return spotify_request('post', url, **kwargs)
 
 
 def spotify_put(url, **kwargs):
-    """PUT to a Spotify API URL, auto-refreshing token on 401. Returns requests.Response."""
-    token = get_access_token()
-    if not token:
-        return None
-    headers = kwargs.pop('headers', {})
-    headers['Authorization'] = f'Bearer {token}'
-    kwargs.setdefault('timeout', SPOTIFY_TIMEOUT)
-    r = requests.put(url, headers=headers, **kwargs)
-    if r.status_code == 401:
-        token = refresh_access_token()
-        if not token:
-            return r
-        headers['Authorization'] = f'Bearer {token}'
-        r = requests.put(url, headers=headers, **kwargs)
-    return r
+    return spotify_request('put', url, **kwargs)
 
 
 @app.errorhandler(requests.RequestException)
@@ -309,6 +308,7 @@ def callback():
     remember_expiry(token_data)
     # this login may be a different account from the last one
     session.pop('user_id', None)
+    session.pop('profile', None)
     try:
         current_user_id()
     except requests.RequestException:
@@ -337,16 +337,49 @@ def player_token():
 
 @app.route('/me')
 def me():
-    access_token = get_access_token()
-    if not access_token:
-        return jsonify({'error': 'Not authenticated'}), 401
+    """Who's signed in: name, email and picture, for Home and Settings.
 
-    response = spotify_get(f"{SPOTIFY_API_URL}/me")
-    if response is None or response.status_code == 401:
+    Kept in the session after the first look, so opening Settings doesn't
+    cost a Spotify call — and still answers when Spotify is busy.
+    """
+    if not get_access_token():
         return jsonify({'error': 'Not authenticated'}), 401
-    if response.status_code != 200:
-        return jsonify({'error': f'Spotify API error: {response.status_code}'}), 400
-    return jsonify(response.json())
+    profile = session.get('profile')
+    if not profile:
+        response = spotify_get(f"{SPOTIFY_API_URL}/me")
+        if response is None or response.status_code == 401:
+            return jsonify({'error': 'Not authenticated'}), 401
+        if response.status_code != 200:
+            app.logger.warning('Spotify /me answered %s', response.status_code)
+            return profile_from_db() or (jsonify({'error': f'Spotify API error: {response.status_code}'}), 503)
+        profile = remember_profile(response.json())
+    return jsonify(profile)
+
+
+def remember_profile(me_json):
+    images = me_json.get('images') or []
+    profile = {
+        'id': me_json.get('id'),
+        'display_name': me_json.get('display_name'),
+        'email': me_json.get('email'),
+        'image': (images[0] or {}).get('url') if images else None,
+    }
+    session['profile'] = profile
+    if isinstance(profile['id'], str) and profile['id']:
+        session['user_id'] = profile['id']
+    return profile
+
+
+def profile_from_db():
+    """The name we saved at sign-in, when Spotify can't be asked."""
+    user_id = session.get('user_id')
+    if not user_id:
+        return None
+    with db.connect() as conn:
+        row = conn.execute('SELECT display_name FROM users WHERE spotify_id = ?',
+                           (user_id,)).fetchone()
+    return jsonify({'id': user_id, 'display_name': row[0] if row else None,
+                    'email': None, 'image': None})
 
 
 @app.route('/logout', methods=['POST'])
@@ -799,8 +832,10 @@ def playback():
         return jsonify({'error': 'device_id must be a Spotify device id'}), 400
     on_device = {'device_id': device_id} if device_id and action in PLAY_ACTIONS else None
 
+    # seek needs a position; play_track may take one, to resume a song where
+    # it was paused
     position_ms = body.get('position_ms')
-    if action == 'seek':
+    if action == 'seek' or (action == 'play_track' and position_ms is not None):
         # bool is an int subclass, so reject it explicitly
         if isinstance(position_ms, bool) or not isinstance(position_ms, int):
             return jsonify({'error': 'position_ms must be an integer'}), 400
@@ -817,9 +852,10 @@ def playback():
         if action == 'previous':
             return spotify_post(f"{SPOTIFY_API_URL}/me/player/previous")
         if action == 'play_track':
+            start = {'position_ms': position_ms} if position_ms else {}
             return spotify_put(
                 f"{SPOTIFY_API_URL}/me/player/play", params=on_device,
-                json={'uris': [f'spotify:track:{track_id}']}
+                json={'uris': [f'spotify:track:{track_id}'], **start}
             )
         if action == 'play_tracks':
             return spotify_put(
@@ -1040,26 +1076,38 @@ def current_user_id():
         return None
     res = spotify_get(f"{SPOTIFY_API_URL}/me")
     if res is None or res.status_code != 200:
+        app.logger.warning('Looking up the signed-in user failed: Spotify answered %s',
+                           None if res is None else res.status_code)
         return None
     try:
-        me = res.json()
+        me_json = res.json()
     except ValueError:
         return None
-    user_id = me.get('id')
-    if not isinstance(user_id, str) or not user_id:
+    remember_profile(me_json)
+    user_id = session.get('user_id')
+    if not user_id:
         return None
-    save_user(user_id, me.get('display_name'))
-    session['user_id'] = user_id
+    save_user(user_id, me_json.get('display_name'))
     return user_id
 
 
 def require_user(view):
-    """Run the view with the signed-in user's id, or answer 401."""
+    """Run the view with the signed-in user's id.
+
+    401 only when nobody is signed in. Signed in but Spotify couldn't say
+    who you are (it was busy, or rate-limiting us) is a 503: the page should
+    try again, not tell you to connect an account that's already connected.
+    """
     @functools.wraps(view)
     def wrapper(*args, **kwargs):
+        if not get_access_token():
+            return jsonify({'error': 'Not authenticated'}), 401
         user_id = current_user_id()
         if not user_id:
-            return jsonify({'error': 'Not authenticated'}), 401
+            if not get_access_token():   # the refresh failed and cleared it
+                return jsonify({'error': 'Not authenticated'}), 401
+            return jsonify({'error': "Couldn't reach Spotify to check who you are",
+                            'reason': 'spotify_busy'}), 503
         return view(user_id, *args, **kwargs)
     return wrapper
 

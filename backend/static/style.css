@@ -2020,14 +2020,33 @@ body {
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, var(--accent), #6ee79a);
+  overflow: hidden;
+  background: var(--accent);
   color: var(--accent-ink);
-  font-weight: 700;
-  font-size: 16px;
+  font-family: var(--font-display);
+  font-size: 18px;
 }
 
+#profile-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+#profile-name { font-weight: 600; }
+
 #profile-name { font-size: 14.5px; font-weight: 600; }
-#profile-status { font-size: 12.5px; color: var(--accent); }
+#profile-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--accent);
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
 
 .settings-group {
   max-width: 760px;

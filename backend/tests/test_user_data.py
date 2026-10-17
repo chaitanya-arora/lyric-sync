@@ -75,9 +75,42 @@ def test_user_is_looked_up_from_spotify_once(client, database, spotify, monkeypa
         assert conn.execute('SELECT display_name FROM users').fetchone()[0] == 'Cherry'
 
 
-def test_spotify_not_answering_me_means_signed_out(client, database, spotify, monkeypatch):
-    monkeypatch.setattr(spotify, 'spotify_get', lambda url, **kw: FakeResponse(503))
-    assert client.get('/history').status_code == 401
+@pytest.mark.parametrize('status', [429, 503])
+def test_spotify_not_answering_me_is_not_signed_out(client, database, spotify, monkeypatch, status):
+    """Signed in, but Spotify is busy: try again later, don't ask to connect."""
+    monkeypatch.setattr(spotify, 'spotify_get', lambda url, **kw: FakeResponse(status))
+    res = client.get('/history')
+    assert res.status_code == 503
+    assert res.get_json()['reason'] == 'spotify_busy'
+
+
+def test_me_is_remembered_for_settings(client, database, spotify, monkeypatch):
+    calls = []
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        return FakeResponse(200, {'id': 'cherry', 'display_name': 'Cherry',
+                                  'email': 'c@example.com',
+                                  'images': [{'url': 'https://img.example/c.jpg'}]})
+    monkeypatch.setattr(spotify, 'spotify_get', fake_get)
+    first = client.get('/me').get_json()
+    assert first == {'id': 'cherry', 'display_name': 'Cherry', 'email': 'c@example.com',
+                     'image': 'https://img.example/c.jpg'}
+    assert client.get('/me').get_json() == first
+    client.get('/history')
+    assert len(calls) == 1
+
+
+def test_me_falls_back_to_the_saved_name(client, database, spotify, monkeypatch):
+    monkeypatch.setattr(spotify, 'spotify_get', lambda url, **kw: FakeResponse(
+        200, {'id': 'cherry', 'display_name': 'Cherry'}))
+    client.get('/history')                       # saves the user
+    with client.session_transaction() as session:
+        session.pop('profile')
+    monkeypatch.setattr(spotify, 'spotify_get', lambda url, **kw: FakeResponse(429))
+    res = client.get('/me')
+    assert res.status_code == 200
+    assert res.get_json()['display_name'] == 'Cherry'
 
 
 def test_a_new_login_forgets_the_previous_account(client, database, monkeypatch):
@@ -315,3 +348,23 @@ def test_onboarded_is_added_to_a_users_table_from_before_it(database):
     with db.connect() as conn:
         row = conn.execute("SELECT onboarded FROM users WHERE spotify_id = 'old'").fetchone()
     assert bool(row[0]) is False
+
+
+def test_a_short_rate_limit_is_waited_out(client, monkeypatch):
+    answers = [FakeResponse(429, headers={'Retry-After': '1'}), FakeResponse(200, {'ok': True})]
+    waits = []
+    monkeypatch.setattr(app_module.requests, 'get', lambda url, **kw: answers.pop(0))
+    monkeypatch.setattr(app_module.time, 'sleep', waits.append)
+    with app_module.app.test_request_context():
+        app_module.session['access_token'] = 'test-token'
+        assert app_module.spotify_get('https://api.spotify.com/v1/me').status_code == 200
+    assert waits == [1]
+
+
+def test_a_long_rate_limit_is_handed_back(client, monkeypatch):
+    monkeypatch.setattr(app_module.requests, 'get', lambda url, **kw: FakeResponse(
+        429, headers={'Retry-After': '3600'}))
+    monkeypatch.setattr(app_module.time, 'sleep', lambda s: pytest.fail('should not wait an hour'))
+    with app_module.app.test_request_context():
+        app_module.session['access_token'] = 'test-token'
+        assert app_module.spotify_get('https://api.spotify.com/v1/me').status_code == 429

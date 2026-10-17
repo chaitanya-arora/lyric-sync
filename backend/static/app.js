@@ -279,6 +279,17 @@ function showBars() {
 //  HELPERS
 // ─────────────────────────────────────────
 
+// For your own data (history, favourites, settings). A 503 means you're
+// signed in but Spotify was too busy to say who you are — wait a moment and
+// ask again rather than showing an empty page or "connect Spotify".
+async function userFetch(url, options, attempts = 3) {
+  for (let i = 1; ; i++) {
+    const res = await fetch(url, options)
+    if (res.status !== 503 || i >= attempts) return res
+    await new Promise(resolve => setTimeout(resolve, 1500 * i))
+  }
+}
+
 function formatTime(ms) {
   const totalSeconds = Math.floor(ms / 1000)
   const minutes = Math.floor(totalSeconds / 60)
@@ -635,7 +646,7 @@ function applyTranslationEnabled(enabled) {
 function toggleTranslation() {
   applyTranslationEnabled(!translationEnabled)
   // remembered for next time, on any device — the switch works either way
-  fetch('/prefs', {
+  userFetch('/prefs', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ auto_translate: translationEnabled })
@@ -644,7 +655,7 @@ function toggleTranslation() {
 
 async function loadPrefs() {
   try {
-    const res = await fetch('/prefs')
+    const res = await userFetch('/prefs')
     if (!res.ok) return
     const prefs = await res.json()
     applyTranslationEnabled(prefs.auto_translate !== false)
@@ -728,8 +739,8 @@ function unlockWebPlayer() {
   if (webPlayer && webPlayer.activateElement) webPlayer.activateElement()
 }
 
-async function postPlayback(body) {
-  if (PLAY_ACTIONS.has(body.action) && !spotifyHasDevice && webPlayerId) {
+async function postPlayback(body, { onWebPlayer = true } = {}) {
+  if (onWebPlayer && !body.device_id && PLAY_ACTIONS.has(body.action) && !spotifyHasDevice && webPlayerId) {
     body = { ...body, device_id: webPlayerId }
   }
   const res = await fetch('/playback', {
@@ -778,8 +789,62 @@ async function sendPlayback(action) {
 
 async function togglePlayPause() {
   unlockWebPlayer()
+  if (!isPlaying && !spotifyHasDevice && lastKnownData) {
+    await resumeLastSong()
+    return
+  }
   const action = isPlaying ? 'pause' : 'play'
   await sendPlayback(action)
+}
+
+// Paused long enough, Spotify drops the device and "play" has nothing to
+// resume. Wake the device you were on if Spotify still lists it; if not,
+// carry on in this tab from the same spot, so you don't need your phone.
+async function resumeLastSong() {
+  try {
+    let result = await postPlayback({ action: 'play' }, { onWebPlayer: false })
+    if (!result.ok && webPlayerId) {
+      result = await postPlayback({
+        action: 'play_track',
+        track_id: lastKnownData.track_id,
+        position_ms: Math.max(0, Math.floor(progressMs || 0)),
+        device_id: webPlayerId
+      })
+    }
+    if (result.ok) {
+      setTimeout(fetchNowPlaying, 600)
+      return
+    }
+    reportPlaybackProblem(result)
+  } catch (e) {
+    console.error('Resume error:', e)
+    showToast(UNREACHABLE)
+  }
+}
+
+// The song on screen, kept in this browser so a reloaded tab can carry on.
+const LAST_SONG_KEY = 'lyricsync:last-song'
+const PAUSED_KEEP_MS = 60 * 60 * 1000
+let lastSeenSongAt = 0
+
+function rememberLastSong(data) {
+  try {
+    localStorage.setItem(LAST_SONG_KEY, JSON.stringify({ data, savedAt: Date.now() }))
+  } catch (e) { /* storage off: a reload starts fresh */ }
+}
+
+function savedLastSong() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LAST_SONG_KEY))
+    if (saved && saved.data && saved.data.track_id && Date.now() - saved.savedAt < PAUSED_KEEP_MS) {
+      return saved
+    }
+  } catch (e) { /* nothing usable saved */ }
+  return null
+}
+
+function forgetLastSong() {
+  try { localStorage.removeItem(LAST_SONG_KEY) } catch (e) { /* storage off */ }
 }
 
 // ─────────────────────────────────────────
@@ -1098,7 +1163,7 @@ function paintFavouriteButton(trackId) {
 
 async function loadFavourites() {
   try {
-    const res = await fetch('/favourites')
+    const res = await userFetch('/favourites')
     if (!res.ok) return
     favourites = (await res.json()).tracks || []
     paintFavouriteButton(playerTrackId())
@@ -1152,7 +1217,7 @@ async function removeFavourite(track) {
   paintFavouriteButton(playerTrackId())
   renderFavourites()
   try {
-    const res = await fetch(`/favourites/${encodeURIComponent(track.track_id)}`, { method: 'DELETE' })
+    const res = await userFetch(`/favourites/${encodeURIComponent(track.track_id)}`, { method: 'DELETE' })
     if (!res.ok) throw new Error(`favourites: ${res.status}`)
   } catch (e) {
     favourites = before
@@ -1551,7 +1616,7 @@ let picksLanguage = null
 async function loadHome() {
   paintGreeting()
   if (!homeName) {
-    fetch('/me').then(r => r.ok ? r.json() : null).then(me => {
+    userFetch('/me').then(r => r.ok ? r.json() : null).then(me => {
       if (me && me.display_name) {
         homeName = me.display_name.split(' ')[0]
         paintGreeting()
@@ -1568,7 +1633,7 @@ async function loadHome() {
   // jump back in: the latest few from Recently Translated
   let languages = []
   try {
-    const res = await fetch('/history?limit=6')
+    const res = await userFetch('/history?limit=6')
     if (res.ok) {
       const data = await res.json()
       const counts = (data.languages || []).filter(l => l.lang !== 'EN')
@@ -1912,7 +1977,7 @@ async function requestSong(track) {
   const button = document.getElementById('state-action')
   button.disabled = true
   try {
-    const res = await fetch('/song-requests', {
+    const res = await userFetch('/song-requests', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ track_id: track.track_id, song: track.song, artist: track.artist })
@@ -2312,8 +2377,11 @@ async function playTrack(track) {
 
 // Recently Translated lists songs heard with translations showing, so a song
 // goes in once its translated lyrics are on screen
+let recordedTrackId = null
+
 function recordListen(track, sourceLang) {
-  fetch('/history', {
+  recordedTrackId = track.track_id
+  userFetch('/history', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -2331,9 +2399,13 @@ async function loadRecent() {
   const params = new URLSearchParams({ limit: recentShowAll ? 200 : RECENT_PAGE })
   if (recentFilter) params.set('lang', recentFilter)
   try {
-    const res = await fetch(`/history?${params}`)
+    const res = await userFetch(`/history?${params}`)
     if (res.status === 401) {
       recentMessage('Connect Spotify to see your listening history.')
+      return
+    }
+    if (res.status === 503) {
+      recentMessage("Spotify's busy right now.", 'Your history is safe — give it a few seconds and try again.')
       return
     }
     if (!res.ok) throw new Error(`history: ${res.status}`)
@@ -2397,7 +2469,7 @@ targetSelect.addEventListener('change', async () => {
   const previous = targetLang
   targetLang = targetSelect.value
   try {
-    const res = await fetch('/prefs', {
+    const res = await userFetch('/prefs', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ target_lang: targetLang })
@@ -2421,19 +2493,43 @@ function reloadLyrics() {
 
 async function loadSettings() {
   try {
-    const me = await (await fetch('/me')).json()
-    const name = me.display_name || 'Your account'
-    document.getElementById('profile-name').textContent = name
-    document.getElementById('profile-avatar').textContent = name.trim().charAt(0).toUpperCase()
-    document.getElementById('settings-email').textContent =
-      me.email ? `${me.email} · Connected` : 'Connected'
+    const res = await userFetch('/me')
+    if (!res.ok) throw new Error(`me: ${res.status}`)
+    paintProfile(await res.json())
   } catch (e) { /* keeps the generic labels */ }
   refreshHistoryCount()
 }
 
+// Settings shows who's signed in: your Spotify picture (or initial), name
+// and email, so it's plain which account LyricSync is using.
+function paintProfile(me) {
+  const name = me.display_name || homeName || 'Spotify user'
+  if (me.display_name && !homeName) homeName = me.display_name.split(' ')[0]
+  document.getElementById('profile-name').textContent = name
+  const avatar = document.getElementById('profile-avatar')
+  avatar.replaceChildren()
+  if (me.image) {
+    const img = document.createElement('img')
+    img.src = me.image
+    img.alt = ''
+    img.referrerPolicy = 'no-referrer'
+    img.addEventListener('error', () => { avatar.textContent = initial(name) })
+    avatar.appendChild(img)
+  } else {
+    avatar.textContent = initial(name)
+  }
+  document.getElementById('settings-email').textContent = me.email
+    ? `Signed in as ${me.email}`
+    : `Signed in as ${name}`
+}
+
+function initial(name) {
+  return (Array.from(name.trim())[0] || '?').toUpperCase()
+}
+
 async function refreshHistoryCount() {
   try {
-    const res = await fetch('/history?limit=1')
+    const res = await userFetch('/history?limit=1')
     if (!res.ok) return
     const total = (await res.json()).total
     document.getElementById('settings-history-count').textContent =
@@ -2462,7 +2558,7 @@ async function clearHistory() {
   button.textContent = 'Clear'
   button.classList.remove('armed')
   try {
-    const res = await fetch('/history', { method: 'DELETE' })
+    const res = await userFetch('/history', { method: 'DELETE' })
     if (!res.ok) throw new Error(`history: ${res.status}`)
     showToast('Listening history cleared', 3000)
     refreshHistoryCount()
@@ -2618,7 +2714,7 @@ async function finishOnboarding(enable) {
     changes.auto_translate = true
   }
   try {
-    const res = await fetch('/prefs', {
+    const res = await userFetch('/prefs', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(changes)
@@ -2672,6 +2768,7 @@ function signedOut() {
   lastKnownData = null
   isPlaying = false
   knownLanguages = null
+  forgetLastSong()
   document.title = 'LyricSync'
   showWelcomeScreen()
 }
@@ -2843,9 +2940,23 @@ async function fetchNowPlaying() {
       fetchContext()
     }
 
-    const data = await response.json()
+    let data = await response.json()
     // with no active device Spotify answers "nothing playing" (204)
     spotifyHasDevice = Boolean(data.playing && data.device && data.device.id)
+
+    if (data.song) {
+      lastSeenSongAt = Date.now()
+      rememberLastSong(data)
+    } else if (!lastKnownData) {
+      // Spotify forgets a song left paused for a few minutes. If this tab
+      // was reloaded meanwhile (a browser unloads background tabs), pick up
+      // the song from before rather than starting over.
+      const saved = savedLastSong()
+      if (saved) {
+        data = { ...saved.data, is_playing: false, device: null }
+        lastSeenSongAt = saved.savedAt
+      }
+    }
 
     // ── PAUSED or NOTHING PLAYING ──
     // Freeze everything exactly as-is, for as long as it stays paused.
@@ -2867,64 +2978,79 @@ async function fetchNowPlaying() {
         updateBottomBar(lastKnownData)
       }
 
-      // A pause used to fall back to the welcome screen after 60s, which read
-      // as being disconnected and sent you to Spotify to start again. Stay put
-      // instead. The exception is having nothing to stay on: with no track
-      // known yet, the welcome screen is the only thing to show.
-      if (!lastKnownData && welcomeScreen.style.display === 'none') {
-        showWelcomeScreen()
+      // Paused, the song stays up — play carries on from here, even once
+      // Spotify itself has let go of it. Only after an hour of nothing does
+      // LyricSync go back to the welcome screen.
+      const idleTooLong = Date.now() - lastSeenSongAt > PAUSED_KEEP_MS
+      if ((!lastKnownData || idleTooLong) && !data.song) {
+        if (welcomeScreen.style.display === 'none') showWelcomeScreen()
+        return
       }
 
-      // content panel stays frozen — don't touch it
-      return
-    }
-
-    // ── PLAYING ──
-    isPlaying = true
-    lastKnownData = data
-    durationMs = data.duration_ms
-
-    // A seek we just issued may not be reflected by Spotify yet — adopting its
-    // position here would snap the bar back to where we seeked from.
-    if (Date.now() >= seekSettleUntil) {
-      lastServerSync = Date.now()
-
-      // ── dynamic drift correction ──
-      // Compare where we predicted the song would be (via local tick)
-      // vs where Spotify actually says it is — the gap is our drift.
-      // We blend it in gradually (30% weight) to avoid jumpy corrections.
-      if (lastPollTime > 0 && data.track_id === currentTrackId) {
-        const expectedProgress = lastPollProgressMs + (Date.now() - lastPollTime)
-        const actualProgress = data.progress_ms
-        const measuredDrift = actualProgress - expectedProgress
-        // only correct if drift is significant (>100ms) and not a seek/skip jump (>3s)
-        if (Math.abs(measuredDrift) > 100 && Math.abs(measuredDrift) < 3000) {
-          dynamicOffset = Math.round(dynamicOffset * 0.7 + measuredDrift * 0.3)
-        }
-      }
-      lastPollProgressMs = data.progress_ms
-      lastPollTime = Date.now()
+      // a song we haven't shown yet (just opened, paused): load its lyrics
+      // too, and put it on screen in place of the welcome
+      if (!data.song || data.track_id === currentTrackId) return
       progressMs = data.progress_ms
-    }
+      durationMs = data.duration_ms
+      lastServerSync = Date.now()
+      if (!onboardingOpen && !welcomeScreen.classList.contains('hidden')
+          && welcomeScreen.style.display !== 'none') {
+        hideWelcomeScreen(restorePlayerView)
+      }
+    } else {
 
-    updatePlayPauseIcon(true)
-    updateProgressBar(progressMs, durationMs)
-    updateTopBar(data)
-    updateBottomBar(data)
-    updatePlayerState(data)
+      // ── PLAYING ──
+      isPlaying = true
+      lastKnownData = data
+      durationMs = data.duration_ms
+
+      // A seek we just issued may not be reflected by Spotify yet — adopting its
+      // position here would snap the bar back to where we seeked from.
+      if (Date.now() >= seekSettleUntil) {
+        lastServerSync = Date.now()
+
+        // ── dynamic drift correction ──
+        // Compare where we predicted the song would be (via local tick)
+        // vs where Spotify actually says it is — the gap is our drift.
+        // We blend it in gradually (30% weight) to avoid jumpy corrections.
+        if (lastPollTime > 0 && data.track_id === currentTrackId) {
+          const expectedProgress = lastPollProgressMs + (Date.now() - lastPollTime)
+          const actualProgress = data.progress_ms
+          const measuredDrift = actualProgress - expectedProgress
+          // only correct if drift is significant (>100ms) and not a seek/skip jump (>3s)
+          if (Math.abs(measuredDrift) > 100 && Math.abs(measuredDrift) < 3000) {
+            dynamicOffset = Math.round(dynamicOffset * 0.7 + measuredDrift * 0.3)
+          }
+        }
+        lastPollProgressMs = data.progress_ms
+        lastPollTime = Date.now()
+        progressMs = data.progress_ms
+      }
+
+      updatePlayPauseIcon(true)
+      updateProgressBar(progressMs, durationMs)
+      updateTopBar(data)
+      updateBottomBar(data)
+      updatePlayerState(data)
 
 
 
-    // welcome screen may be up (nothing had played yet) — restore the player
-    if (!onboardingOpen && !welcomeScreen.classList.contains('hidden')
-        && welcomeScreen.style.display !== 'none') {
-      hideWelcomeScreen(restorePlayerView)
-    }
+      // welcome screen may be up (nothing had played yet) — restore the player
+      if (!onboardingOpen && !welcomeScreen.classList.contains('hidden')
+          && welcomeScreen.style.display !== 'none') {
+        hideWelcomeScreen(restorePlayerView)
+      }
 
-    // same track — just sync line
-    if (data.track_id === currentTrackId) {
-      syncActiveLine(progressMs)
-      return
+      // same track — just sync line
+      if (data.track_id === currentTrackId) {
+        if (recordedTrackId !== currentTrackId && translationEnabled
+            && currentContentState === 'lyrics') {
+          recordListen(data, dominantLanguage(currentLyrics))
+          celebrateIfNew(dominantLanguage(currentLyrics))
+        }
+        syncActiveLine(progressMs)
+        return
+      }
     }
 
     // a failed lyrics load waits out its backoff before trying again
@@ -3021,7 +3147,8 @@ async function fetchNowPlaying() {
     }
 
     renderLyrics(currentLyrics)
-    if (translationEnabled) {
+    // a song opened paused goes in once it's actually played
+    if (translationEnabled && isPlaying) {
       recordListen(data, lang)
       celebrateIfNew(lang)
     }
@@ -3117,7 +3244,7 @@ let knownLanguages = null   // languages already in your history
 
 async function loadKnownLanguages() {
   try {
-    const res = await fetch('/history?limit=1')
+    const res = await userFetch('/history?limit=1')
     if (!res.ok) return
     const data = await res.json()
     knownLanguages = new Set((data.languages || []).map(l => l.lang))
@@ -3226,7 +3353,39 @@ route()
 // Show welcome (login mode) immediately — fetchNowPlaying will replace it
 showWelcomeScreen()
 
+// Spotify rate-limits each app, and every poll counts against it. Ask
+// often while a song plays in front of you, less while paused or in a
+// background tab, and catch up the moment you come back.
+const POLL_EVERY_MS = { playing: 5000, paused: 15000, hidden: 30000 }
+const CONTEXT_EVERY_MS = { playing: 10000, paused: 60000, hidden: 120000 }
+let lastPollAt = 0
+let lastContextAt = 0
+
+function pollMode() {
+  if (document.hidden) return 'hidden'
+  return isPlaying ? 'playing' : 'paused'
+}
+
+function pollSpotify() {
+  const now = Date.now()
+  if (now - lastPollAt >= POLL_EVERY_MS[pollMode()] - 250) {
+    lastPollAt = now
+    fetchNowPlaying()
+  }
+  if (now - lastContextAt >= CONTEXT_EVERY_MS[pollMode()] - 250) {
+    lastContextAt = now
+    fetchContext()
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return
+  lastPollAt = 0
+  lastContextAt = 0
+  pollSpotify()
+})
+
+lastPollAt = Date.now()
 fetchNowPlaying()
-setInterval(fetchNowPlaying, 5000)
-setInterval(fetchContext, 10000)
+setInterval(pollSpotify, 1000)
 setInterval(tickProgress, TICK_MS)

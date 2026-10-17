@@ -362,6 +362,23 @@ def test_play_track_sends_the_right_uri(playback):
     assert body == {'uris': ['spotify:track:4cOdK2wGLETKBW3PvgPWqT']}
 
 
+def test_play_track_can_resume_where_it_was_paused(playback):
+    client, calls = playback
+    resp = client.post('/playback', json={'action': 'play_track', 'track_id': '4cOdK2wGLETKBW3PvgPWqT',
+                                          'position_ms': 83000})
+    assert resp.status_code == 200
+    assert calls[-1][1] == {'uris': ['spotify:track:4cOdK2wGLETKBW3PvgPWqT'], 'position_ms': 83000}
+
+
+@pytest.mark.parametrize('bad', [-1, 'soon', True, 1.5])
+def test_play_track_rejects_a_bad_position(playback, bad):
+    client, calls = playback
+    resp = client.post('/playback', json={'action': 'play_track', 'track_id': '4cOdK2wGLETKBW3PvgPWqT',
+                                          'position_ms': bad})
+    assert resp.status_code == 400
+    assert calls == []
+
+
 @pytest.mark.parametrize('bad_id', [
     None,                       # missing
     '',                         # empty

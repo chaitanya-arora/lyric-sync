@@ -56,9 +56,10 @@ def spotify(monkeypatch):
 class FakeResponse:
     """The slice of requests.Response that the app actually uses."""
 
-    def __init__(self, status_code=200, payload=None):
+    def __init__(self, status_code=200, payload=None, headers=None):
         self.status_code = status_code
         self._payload = payload
+        self.headers = headers or {}
 
     def json(self):
         if self._payload is None:

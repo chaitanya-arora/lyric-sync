@@ -490,17 +490,23 @@ body {
   margin: 0 auto;   /* a centred column, read left to right */
   display: flex;
   flex-direction: column;
-  gap: clamp(14px, 1.6vh, 22px);
+  gap: clamp(4px, 0.8vh, 10px);
   /* room above the first line and below the last, so either can reach the
      middle of the well */
   padding: 34vh clamp(20px, 4vw, 64px);
 }
 
 .lyric-line {
+  /* every line has the box's padding and bar, invisible until it's the
+     current one, so nothing shifts as the highlight moves */
+  padding: 14px 22px;
+  border-left: 6px solid transparent;
+  border-radius: 0 var(--radius) var(--radius) 0;
   transform-origin: left center;
   transform: scale(0.94);
   opacity: 0.26;
-  transition: opacity 0.45s var(--ease), transform 0.45s var(--ease);
+  transition: opacity 0.45s var(--ease), transform 0.45s var(--ease),
+              background 0.3s ease, border-color 0.3s ease;
 }
 
 .lyric-original {
@@ -521,9 +527,12 @@ body {
 
 .lyric-line.near { opacity: 0.5; transform: scale(0.96); }
 
+/* the line being sung sits in a grey box with a green bar, as in the Figma */
 .lyric-line.active {
   opacity: 1;
   transform: scale(1);
+  background: rgba(255, 255, 255, 0.08);
+  border-left-color: var(--green);
 }
 
 .lyric-line.active .lyric-original {
@@ -1699,7 +1708,8 @@ body {
   #album-art { width: 52px; height: 52px; }
   #lang-badge { display: none !important; }
 
-  #lyrics-inner { padding-left: 20px; padding-right: 20px; }
+  #lyrics-inner { padding-left: 12px; padding-right: 12px; }
+  .lyric-line { padding: 10px 14px; border-left-width: 4px; }
 
   #mobile-nav {
     display: flex;

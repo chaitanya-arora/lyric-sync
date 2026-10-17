@@ -679,7 +679,7 @@ body {
   place-items: center;
   font-size: 44px;
   color: oklch(0.86 0.1 var(--lang-h));
-  background: oklch(0.4 0.09 var(--lang-h));
+  background: oklch(0.56 0.17 var(--lang-h));
 }
 
 .song-card-play {
@@ -995,13 +995,13 @@ body {
   border-radius: var(--radius-lg);
   text-decoration: none;
   overflow: hidden;
-  background: oklch(0.48 0.11 var(--lang-h));
+  background: oklch(0.6 0.19 var(--lang-h));
   transition: transform 0.25s var(--ease), box-shadow 0.25s;
 }
 
 .lang-tile:hover {
   transform: translateY(-2px);
-  background: oklch(0.53 0.12 var(--lang-h));
+  background: oklch(0.65 0.2 var(--lang-h));
 }
 
 .lang-tile-title {
@@ -1175,7 +1175,7 @@ body {
   place-items: center;
   border-radius: var(--radius-lg);
   font-size: clamp(48px, 5vw, 72px);
-  background: oklch(0.48 0.11 var(--lang-h));
+  background: oklch(0.6 0.19 var(--lang-h));
 }
 
 /* ── explore ── */
@@ -1269,7 +1269,7 @@ body {
   align-items: center;
   gap: 14px;
   padding: 18px;
-  background: oklch(0.4 0.09 var(--lang-h));
+  background: oklch(0.56 0.17 var(--lang-h));
   border-bottom: 1px solid var(--line);
 }
 

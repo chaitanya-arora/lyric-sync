@@ -340,7 +340,7 @@ function langLabel(code) {
 // that mark it. Languages not listed get a stable hue from their code.
 const LANG_HUES = {
   FR: 12, ES: 42, HI: 68, PA: 140, KO: 292, JA: 345, ZH: 28, PT: 172,
-  IT: 112, AR: 228, DE: 262, RU: 250, TR: 198, ID: 186, UR: 158, BN: 96,
+  IT: 155, AR: 228, DE: 262, RU: 250, TR: 198, ID: 186, UR: 158, BN: 96,
   TA: 54, TE: 82, NL: 32, PL: 318, SV: 214, VI: 128, TH: 276, EN: 206
 }
 
@@ -1687,7 +1687,7 @@ function showCountry(code) {
   paintTile(panel, { lang })
   document.getElementById('explore-flag').textContent = flag(code)
   document.getElementById('explore-name').textContent = name
-  document.getElementById('explore-lang').textContent = `Most played in ${langName(lang)}`
+  document.getElementById('explore-lang').textContent = 'Most played right now'
   renderChartInto(document.getElementById('explore-list'), code, 15)
 }
 

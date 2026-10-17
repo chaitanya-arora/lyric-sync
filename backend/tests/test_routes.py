@@ -843,3 +843,61 @@ def test_play_tracks_rejects_bad_lists(playback, body):
     resp = client.post('/playback', json={'action': 'play_tracks', **body})
     assert resp.status_code == 400
     assert calls == []
+
+
+# --- the in-browser player ---
+
+def test_login_asks_for_streaming(client):
+    scope = parse_qs(urlparse(client.get('/login').headers['Location']).query)['scope'][0]
+    assert 'streaming' in scope.split()
+
+
+def test_player_token_hands_over_a_live_token(client):
+    import db
+    with client.session_transaction() as session:
+        session['access_token'] = 'live-token'
+        session['token_expires_at'] = db.now() + 3000
+    resp = client.get('/player-token')
+    assert resp.get_json() == {'access_token': 'live-token'}
+    assert resp.headers['Cache-Control'] == 'no-store'
+
+
+def test_player_token_refreshes_one_about_to_lapse(client, monkeypatch):
+    import app as app_module
+    import db
+    with client.session_transaction() as session:
+        session['access_token'] = 'old-token'
+        session['refresh_token'] = 'r'
+        session['token_expires_at'] = db.now() + 30
+    monkeypatch.setattr(app_module.requests, 'post', lambda url, **kw: FakeResponse(
+        200, {'access_token': 'new-token', 'expires_in': 3600}))
+    assert client.get('/player-token').get_json() == {'access_token': 'new-token'}
+
+
+def test_player_token_requires_sign_in(client):
+    assert client.get('/player-token').status_code == 401
+
+
+def test_playing_on_the_browser_player_names_it(client, spotify, monkeypatch):
+    calls = []
+    monkeypatch.setattr(spotify, 'spotify_put',
+                        lambda u, **kw: calls.append(kw.get('params')) or FakeResponse(204))
+    client.post('/playback', json={'action': 'play_track', 'track_id': 'abc123',
+                                   'device_id': 'browser-1'})
+    assert calls == [{'device_id': 'browser-1'}]
+
+
+def test_named_device_is_not_swapped_for_another(client, spotify_with):
+    """No active device: with the browser player named, don't wake the phone."""
+    calls = spotify_with([PHONE], [NO_ACTIVE_DEVICE])
+    resp = client.post('/playback', json={'action': 'play_track', 'track_id': 'abc123',
+                                          'device_id': 'browser-1'})
+    assert resp.status_code == 409
+    assert [c for c in calls if c[0] == 'GET'] == []
+
+
+def test_device_id_must_look_like_one(playback):
+    client, calls = playback
+    resp = client.post('/playback', json={'action': 'play', 'device_id': '../me'})
+    assert resp.status_code == 400
+    assert calls == []

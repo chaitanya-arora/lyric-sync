@@ -607,7 +607,66 @@ function showToast(message, ms = 5000) {
   toastTimer = setTimeout(() => toast.classList.remove('visible'), ms)
 }
 
+// ─────────────────────────────────────────
+//  PLAYING IN THE BROWSER
+// ─────────────────────────────────────────
+
+// Spotify's Web Playback SDK makes this tab a Spotify device called
+// "LyricSync". When nothing else is playing, songs started here play here;
+// when a phone or speaker is already playing, they go there as before.
+// It needs Premium and a desktop browser — anywhere else it stays quiet.
+const PLAY_ACTIONS = new Set(['play', 'play_track', 'play_tracks', 'play_context'])
+let webPlayer = null
+let webPlayerId = null          // this tab's device id, once it's ready
+let spotifyHasDevice = false    // whether Spotify reports an active device
+
+function startWebPlayer() {
+  if (webPlayer) {
+    webPlayer.connect()   // signed in again after disconnecting
+    return
+  }
+  if (document.getElementById('spotify-sdk')) return   // still loading
+  window.onSpotifyWebPlaybackSDKReady = () => {
+    webPlayer = new Spotify.Player({
+      name: 'LyricSync',
+      volume: 0.8,
+      getOAuthToken: callback => {
+        fetch('/player-token')
+          .then(r => (r.ok ? r.json() : Promise.reject(r.status)))
+          .then(data => callback(data.access_token))
+          .catch(() => {})
+      }
+    })
+    webPlayer.addListener('ready', ({ device_id }) => { webPlayerId = device_id })
+    webPlayer.addListener('not_ready', () => { webPlayerId = null })
+    // no Premium, an unsupported browser, or a session from before the
+    // streaming permission: playback simply stays on other devices
+    for (const event of ['initialization_error', 'authentication_error', 'account_error']) {
+      webPlayer.addListener(event, () => { webPlayerId = null })
+    }
+    webPlayer.connect()
+  }
+  const script = document.createElement('script')
+  script.id = 'spotify-sdk'
+  script.src = 'https://sdk.scdn.co/spotify-player.js'
+  document.head.appendChild(script)
+}
+
+function stopWebPlayer() {
+  if (webPlayer) webPlayer.disconnect()
+  webPlayerId = null
+}
+
+// Browsers only let a page start sound in response to a click. Called at
+// the top of each click that plays something, before anything is awaited.
+function unlockWebPlayer() {
+  if (webPlayer && webPlayer.activateElement) webPlayer.activateElement()
+}
+
 async function postPlayback(body) {
+  if (PLAY_ACTIONS.has(body.action) && !spotifyHasDevice && webPlayerId) {
+    body = { ...body, device_id: webPlayerId }
+  }
   const res = await fetch('/playback', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -653,6 +712,7 @@ async function sendPlayback(action) {
 }
 
 async function togglePlayPause() {
+  unlockWebPlayer()
   const action = isPlaying ? 'pause' : 'play'
   await sendPlayback(action)
 }
@@ -937,6 +997,7 @@ document.querySelectorAll('#library-chips .chip').forEach(chip => {
 })
 
 async function playContext(item) {
+  unlockWebPlayer()
   try {
     const result = await postPlayback({ action: 'play_context', context_uri: item.uri })
     if (!result.ok) {
@@ -1038,6 +1099,7 @@ async function removeFavourite(track) {
 
 // Play the list from one song on, so it carries on through the rest.
 async function playFavourites(index) {
+  unlockWebPlayer()
   try {
     const result = await postPlayback({
       action: 'play_tracks',
@@ -1200,6 +1262,7 @@ async function fetchChart(country) {
 
 // Chart songs come from Apple: find each on Spotify when it's played.
 async function playChartSong(song, country, button) {
+  unlockWebPlayer()
   if (button) button.classList.add('busy')
   try {
     const res = await fetch('/discover/match', {
@@ -2068,6 +2131,7 @@ function renderRecent(tracks) {
 }
 
 async function playTrack(track) {
+  unlockWebPlayer()
   location.hash = '#/now-playing'
   try {
     const result = await postPlayback({ action: 'play_track', track_id: track.track_id })
@@ -2429,6 +2493,7 @@ async function disconnectSpotify() {
 // after Disconnect, or when the server says the session has gone.
 function signedOut() {
   isLoggedIn = false
+  stopWebPlayer()
   accessProblem = null
   libraryItems = []
   libraryList.innerHTML = ''
@@ -2604,12 +2669,15 @@ async function fetchNowPlaying() {
       isLoggedIn = true
       loadPrefs()
       loadFavourites()
+      startWebPlayer()
       loadLibrary()
       showBars()
       fetchContext()
     }
 
     const data = await response.json()
+    // with no active device Spotify answers "nothing playing" (204)
+    spotifyHasDevice = Boolean(data.playing && data.device && data.device.id)
 
     // ── PAUSED or NOTHING PLAYING ──
     // Freeze everything exactly as-is, for as long as it stays paused.

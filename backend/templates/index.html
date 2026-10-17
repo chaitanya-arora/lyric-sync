@@ -326,26 +326,64 @@
     <canvas id="welcome-canvas"></canvas>
 
     <div id="welcome-card">
-      <div id="welcome-icon" aria-hidden="true">
-        <svg viewBox="0 0 32 32"><path d="M7 12h18" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/><path d="M7 20h10.5" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" opacity=".5"/><circle cx="23" cy="20" r="2.1" fill="currentColor" opacity=".5"/></svg>
-      </div>
+      <div id="onboard-progress" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+
+      <div id="welcome-icon" aria-hidden="true"></div>
 
       <div id="welcome-title">Welcome to LyricSync</div>
       <div id="welcome-tagline">Music, understood.</div>
+      <p id="welcome-desc"></p>
 
-      <p id="welcome-desc">
-        Connect Spotify and LyricSync shows you real-time translated lyrics —
-        line by line, in sync, as you listen. No pausing. No Googling.
-        Just music and meaning, together.
-      </p>
+      <!-- step 2: the two voices, cycling through three languages -->
+      <div id="onboard-demo" class="onboard-panel" hidden>
+        <div class="demo-line" data-lang="FR">
+          <span class="lang-pill">FRE → ENG</span>
+          <span class="demo-original">Je t'attends sous la lune</span>
+          <span class="demo-translation">I wait for you beneath the moon</span>
+        </div>
+        <div class="demo-line" data-lang="HI">
+          <span class="lang-pill">HIN → ENG</span>
+          <span class="demo-original">Tere bina raat adhuri hai</span>
+          <span class="demo-translation">Without you, the night is incomplete</span>
+        </div>
+        <div class="demo-line" data-lang="ES">
+          <span class="lang-pill">ESP → ENG</span>
+          <span class="demo-original">Bailamos hasta el amanecer</span>
+          <span class="demo-translation">We dance until the dawn</span>
+        </div>
+      </div>
 
-      <a id="welcome-login-btn" class="btn-primary" href="/login">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <!-- step 3: what connecting allows, said plainly -->
+      <div id="onboard-permissions" class="onboard-panel" hidden>
+        <div class="onboard-panel-title">With your Spotify account, LyricSync can</div>
+        <ul>
+          <li>See what you're playing, and where you are in the song</li>
+          <li>Play, pause and skip from here</li>
+          <li>Show your playlists, saved albums and podcasts</li>
+        </ul>
+        <p class="onboard-panel-note">It never posts anything or changes your library.</p>
+      </div>
+
+      <!-- step 4: after signing in -->
+      <div id="onboard-language" class="onboard-panel" hidden>
+        <label class="onboard-panel-title" for="onboard-target">Translate lyrics into</label>
+        <div class="select-wrap">
+          <select id="onboard-target"></select>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </div>
+      </div>
+
+      <div id="onboard-actions">
+        <button id="onboard-next" class="btn-primary" type="button" hidden>Continue</button>
+        <a id="welcome-login-btn" class="btn-primary" href="/login">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.563.387-.857.207-2.35-1.434-5.305-1.76-8.786-.963-.335.077-.67-.133-.746-.47-.077-.334.132-.67.47-.745 3.808-.87 7.076-.496 9.712 1.115.293.18.386.563.207.856zm1.223-2.722c-.226.367-.706.482-1.072.257-2.687-1.652-6.785-2.131-9.965-1.166-.413.127-.848-.106-.973-.517-.125-.413.108-.848.52-.973 3.632-1.102 8.147-.568 11.233 1.328.366.226.48.707.257 1.072zm.105-2.835C14.692 8.950 9.375 8.775 6.297 9.71c-.493.15-1.016-.129-1.166-.623-.148-.495.13-1.017.625-1.166 3.532-1.073 9.404-.866 13.115 1.337.445.264.590.838.327 1.282-.264.443-.838.59-1.284.327z"/>
-        </svg>
-        Connect with Spotify
-      </a>
-      <div id="welcome-note">Your Spotify password is never shared with us</div>
+          </svg>
+          Connect with Spotify
+        </a>
+        <button id="onboard-back" class="btn-link" type="button" hidden>Back</button>
+      </div>
+      <div id="welcome-note"></div>
     </div>
   </div>
 

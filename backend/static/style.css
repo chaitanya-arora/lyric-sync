@@ -304,7 +304,7 @@ body {
 #main {
   position: relative;
   min-height: 0;
-  overflow: hidden;
+  overflow: clip;   /* never scrollable, even from script */
   isolation: isolate;
 }
 
@@ -1278,7 +1278,10 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
+  /* clip, not hidden: the floating flags start below the fold, and a
+     hidden-overflow box can still be scrolled — the browser did, shoving
+     the card off the top */
+  overflow: clip;
   z-index: 60;
   background: var(--ink-0);
   transition: opacity 0.4s ease;
@@ -1297,6 +1300,9 @@ body {
 #welcome-card {
   position: relative;
   z-index: 2;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  scrollbar-width: none;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1345,25 +1351,152 @@ body {
   font-size: 15px;
   color: var(--text-2);
   line-height: 1.6;
-  margin-top: 16px;
-  max-width: 380px;
+  margin-top: 14px;
+  max-width: 390px;
 }
 
-#welcome-login-btn {
-  margin-top: 28px;
+/* ── onboarding ── */
+#onboard-progress {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 26px;
+}
+
+#onboard-progress span {
+  width: 18px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--ink-4);
+  transition: width 0.35s var(--ease), background 0.35s;
+}
+
+#onboard-progress span.active { width: 44px; background: var(--jade); }
+
+.onboard-panel {
   width: 100%;
-  max-width: 320px;
-  padding: 14px 22px;
+  margin-top: 22px;
+  padding: 16px 18px;
+  background: var(--ink-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  text-align: left;
 }
 
-#welcome-login-btn.hidden,
-#welcome-login-btn.hidden + #welcome-note { display: none; }
+.onboard-panel-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin-bottom: 10px;
+}
 
-#welcome-note {
-  font-size: 12.5px;
-  color: var(--text-3);
+#onboard-permissions ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#onboard-permissions li {
+  position: relative;
+  padding-left: 22px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+#onboard-permissions li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 5px;
+  width: 9px;
+  height: 5px;
+  border-left: 2px solid var(--jade);
+  border-bottom: 2px solid var(--jade);
+  transform: rotate(-45deg);
+}
+
+.onboard-panel-note {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 16px;
+  color: var(--jade);
   margin-top: 12px;
 }
+
+/* the demo: three languages taking turns, in the two voices */
+#onboard-demo {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#onboard-demo[hidden] { display: none; }
+
+.demo-line {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 12px;
+  align-items: baseline;
+  opacity: 0.35;
+  transition: opacity 0.5s var(--ease);
+}
+
+.demo-line.active { opacity: 1; }
+.demo-line .lang-pill { grid-row: span 2; align-self: start; margin-top: 2px; }
+
+.demo-original {
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.demo-translation {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 17px;
+  color: var(--jade);
+}
+
+#onboard-language .select-wrap select { width: 100%; }
+
+#onboard-actions {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: 26px;
+}
+
+#onboard-actions .btn-primary {
+  width: 100%;
+  max-width: 320px;
+  padding: 13px 22px;
+}
+
+#welcome-login-btn.hidden { display: none; }
+
+.btn-link {
+  border: none;
+  background: none;
+  color: var(--text-3);
+  font-size: 14px;
+  font-weight: 500;
+  padding: 4px 8px;
+}
+
+.btn-link:hover { color: var(--text); }
+
+#welcome-note {
+  font-size: 13px;
+  color: var(--text-3);
+  margin-top: 14px;
+}
+
+#welcome-note:empty { display: none; }
+#welcome-note a { color: var(--jade); text-decoration: none; font-weight: 600; }
+#welcome-note a:hover { text-decoration: underline; }
 
 /* ── welcome screen floating elements ── */
 @keyframes floatUp {

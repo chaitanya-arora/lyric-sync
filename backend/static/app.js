@@ -205,6 +205,19 @@ function setWelcomeText(title, tagline, desc) {
   document.getElementById('welcome-desc').textContent = desc
 }
 
+// The welcome card without the onboarding steps: "you're connected", or why
+// Spotify said no. `canConnect` shows the Connect with Spotify button.
+function showWelcomeMessage(title, tagline, desc, canConnect) {
+  setWelcomeIcon('brand')
+  setWelcomeText(title, tagline, desc)
+  document.getElementById('onboard-progress').hidden = true
+  for (const id of ONBOARD_PANELS) document.getElementById(id).hidden = true
+  document.getElementById('onboard-next').hidden = true
+  document.getElementById('onboard-back').hidden = true
+  welcomeLoginBtn.classList.toggle('hidden', !canConnect)
+  setWelcomeNote(canConnect ? 'Your Spotify password is never shared with us' : '')
+}
+
 function showWelcomeScreen() {
   topBar.style.display = 'none'
   bottomBar.style.display = 'none'
@@ -215,19 +228,22 @@ function showWelcomeScreen() {
   welcomeScreen.style.display = 'flex'
   welcomeScreen.style.opacity = '1'
 
-  if (isLoggedIn) {
-    welcomeLoginBtn.classList.add('hidden')
-    setWelcomeText("You're connected!", 'Play a song in Spotify to get started',
-      'Your translated lyrics will appear here, line by line, as you listen.')
+  if (onboardingOpen) {
+    renderOnboardingStep(4)
+    stopWelcomeAnimation()
+    resizeCanvas()
+    isAnimating = true
+    requestAnimationFrame(animateWelcome)
+  } else if (isLoggedIn) {
+    showWelcomeMessage("You're connected!", 'Play a song in Spotify to get started',
+      'Your translated lyrics will appear here, line by line, as you listen.', false)
     // orbs run on connected screen too — just no floating flags/notes
     stopWelcomeAnimation()
     resizeCanvas()
     isAnimating = true
     requestAnimationFrame(animateWelcome)
   } else {
-    welcomeLoginBtn.classList.remove('hidden')
-    setWelcomeText('Welcome to LyricSync', 'Music, understood.',
-      'Connect Spotify and LyricSync shows you real-time translated lyrics — line by line, in sync, as you listen. No pausing. No Googling. Just music and meaning, together.')
+    renderOnboardingStep(onboardStep)
     startWelcomeAnimation()  // flags + notes + orbs
   }
 }
@@ -235,6 +251,8 @@ function showWelcomeScreen() {
 function hideWelcomeScreen(callback) {
   welcomeScreen.classList.add('fade-out')
   setTimeout(() => {
+    // the language step opened while this faded out — it stays up
+    if (onboardingOpen) return
     welcomeScreen.classList.add('hidden')
     welcomeScreen.style.display = 'none'
     stopWelcomeAnimation()
@@ -567,6 +585,7 @@ async function loadPrefs() {
       targetSelect.value = targetLang
       reloadLyrics()   // anything already loaded was fetched in English
     }
+    if (prefs.onboarded === false) openLanguageStep()
   } catch (e) {
     console.warn('Loading settings failed:', e)
   }
@@ -1709,6 +1728,180 @@ async function clearHistory() {
   }
 }
 
+// ─────────────────────────────────────────
+//  ONBOARDING
+// ─────────────────────────────────────────
+
+// Steps 1–3 introduce LyricSync before signing in; step 4 picks a language
+// once signed in, for anyone who hasn't yet.
+const ONBOARD_STEPS = {
+  1: {
+    icon: 'brand',
+    title: 'Welcome to LyricSync',
+    tagline: 'Music, understood.',
+    desc: 'Your music companion with real-time lyric translation. Listen to songs from around the world and understand every word.',
+    next: 'Continue'
+  },
+  2: {
+    icon: 'translate',
+    title: 'Auto-translate lyrics',
+    tagline: 'Break the language barrier',
+    desc: "Whatever's playing, LyricSync finds the lyrics, works out the language and translates every line — side by side, in time with the song.",
+    panel: 'onboard-demo',
+    next: 'Continue',
+    back: 'Back'
+  },
+  3: {
+    icon: 'spotify',
+    title: 'How LyricSync works',
+    tagline: 'Connect your Spotify to get started',
+    desc: 'LyricSync follows what you play on Spotify and shows translated lyrics alongside the original.',
+    panel: 'onboard-permissions',
+    connect: true,
+    back: 'Back',
+    note: 'Your Spotify password is never shared with us'
+  },
+  4: {
+    icon: 'globe',
+    title: 'Choose your language',
+    tagline: "You're almost ready",
+    desc: 'Pick the language lyrics are translated into. You can change it any time in Settings.',
+    panel: 'onboard-language',
+    next: 'Enable auto-translate',
+    back: 'Skip for now'
+  }
+}
+
+const ONBOARD_PANELS = ['onboard-demo', 'onboard-permissions', 'onboard-language']
+
+const WELCOME_ICONS = {
+  brand: '<svg viewBox="0 0 32 32"><path d="M7 12h18" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/><path d="M7 20h10.5" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" opacity=".5"/><circle cx="23" cy="20" r="2.1" fill="currentColor" opacity=".5"/></svg>',
+  translate: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.87 15.07l-2.54-2.51.03-.03A17.52 17.52 0 0 0 14.07 6H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7 1.62-4.33L19.12 17h-3.24z"/></svg>',
+  spotify: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm4.59 14.42a.62.62 0 0 1-.86.21c-2.35-1.44-5.3-1.76-8.79-.96a.62.62 0 1 1-.28-1.22c3.81-.87 7.08-.5 9.72 1.12.29.18.39.56.21.85zm1.22-2.72a.78.78 0 0 1-1.07.26c-2.69-1.65-6.79-2.13-9.97-1.17a.78.78 0 1 1-.45-1.49c3.63-1.1 8.15-.57 11.23 1.33.37.23.48.71.26 1.07zm.11-2.83C14.69 8.95 9.38 8.77 6.3 9.71a.94.94 0 1 1-.54-1.79c3.53-1.07 9.4-.87 13.11 1.34a.94.94 0 0 1-.96 1.61z"/></svg>',
+  globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9.5"/><path d="M2.5 12h19M12 2.5c2.6 2.6 3.9 5.8 3.9 9.5s-1.3 6.9-3.9 9.5c-2.6-2.6-3.9-5.8-3.9-9.5s1.3-6.9 3.9-9.5z"/></svg>'
+}
+
+let onboardStep = 1
+let onboardingOpen = false    // step 4 is up; the welcome screen stays until it's done
+
+function setWelcomeIcon(name) {
+  document.getElementById('welcome-icon').innerHTML = WELCOME_ICONS[name]
+}
+
+function setWelcomeNote(text, link) {
+  const note = document.getElementById('welcome-note')
+  note.textContent = text
+  if (link) {
+    const a = document.createElement('a')
+    a.href = link.href
+    a.textContent = link.label
+    note.append(' ', a)
+  }
+}
+
+function renderOnboardingStep(step) {
+  const config = ONBOARD_STEPS[step]
+  setWelcomeIcon(config.icon)
+  setWelcomeText(config.title, config.tagline, config.desc)
+
+  const progress = document.getElementById('onboard-progress')
+  progress.hidden = false
+  ;[...progress.children].forEach((dot, i) => dot.classList.toggle('active', i + 1 === step))
+
+  for (const id of ONBOARD_PANELS) document.getElementById(id).hidden = id !== config.panel
+
+  const next = document.getElementById('onboard-next')
+  next.hidden = !config.next
+  next.textContent = config.next || ''
+  const back = document.getElementById('onboard-back')
+  back.hidden = !config.back
+  back.textContent = config.back || ''
+  welcomeLoginBtn.classList.toggle('hidden', !config.connect)
+
+  if (step === 1) {
+    setWelcomeNote('Already set up?', { href: '/login', label: 'Connect with Spotify' })
+  } else {
+    setWelcomeNote(config.note || '')
+  }
+}
+
+function goToStep(step) {
+  onboardStep = step
+  renderOnboardingStep(step)
+}
+
+document.getElementById('onboard-next').addEventListener('click', () => {
+  if (onboardingOpen) finishOnboarding(true)
+  else goToStep(Math.min(onboardStep + 1, 3))
+})
+
+document.getElementById('onboard-back').addEventListener('click', () => {
+  if (onboardingOpen) finishOnboarding(false)
+  else goToStep(Math.max(onboardStep - 1, 1))
+})
+
+// step 2's demo: the lines take turns, the way lyrics do
+const demoLines = document.querySelectorAll('.demo-line')
+demoLines.forEach(line => paintLangPill(line.querySelector('.lang-pill'), line.dataset.lang))
+let demoIndex = 0
+demoLines[0].classList.add('active')
+setInterval(() => {
+  if (document.getElementById('onboard-demo').hidden) return
+  demoLines[demoIndex].classList.remove('active')
+  demoIndex = (demoIndex + 1) % demoLines.length
+  demoLines[demoIndex].classList.add('active')
+}, 2400)
+
+const onboardTarget = document.getElementById('onboard-target')
+TARGET_CHOICES.forEach(([code, name]) => {
+  const option = document.createElement('option')
+  option.value = code
+  option.textContent = name
+  onboardTarget.appendChild(option)
+})
+
+function openLanguageStep() {
+  onboardingOpen = true
+  onboardTarget.value = targetLang
+  showWelcomeScreen()
+}
+
+// Enable saves the language and turns translation on; Skip just stops
+// asking. Either way the welcome screen goes and the player comes back.
+async function finishOnboarding(enable) {
+  const changes = { onboarded: true }
+  if (enable) {
+    changes.target_lang = onboardTarget.value
+    changes.auto_translate = true
+  }
+  try {
+    const res = await fetch('/prefs', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(changes)
+    })
+    if (!res.ok) throw new Error(`prefs: ${res.status}`)
+  } catch (e) {
+    showToast("Couldn't save that — try again in a moment.")
+    return
+  }
+
+  onboardingOpen = false
+  if (enable) {
+    applyTranslationEnabled(true)
+    if (changes.target_lang !== targetLang) {
+      targetLang = changes.target_lang
+      targetSelect.value = targetLang
+      reloadLyrics()
+    }
+  }
+  if (lastKnownData) {
+    hideWelcomeScreen(restorePlayerView)
+  } else {
+    showWelcomeScreen()   // nothing playing yet: "you're connected"
+  }
+}
+
 async function disconnectSpotify() {
   try {
     await fetch('/logout', { method: 'POST' })
@@ -1803,8 +1996,7 @@ function showAccessProblem(reason) {
   signedOut()
   accessProblem = reason
   const problem = ACCESS_PROBLEMS[reason]
-  setWelcomeText(problem.title, '', problem.desc)
-  welcomeLoginBtn.classList.toggle('hidden', !problem.canReconnect)
+  showWelcomeMessage(problem.title, '', problem.desc, problem.canReconnect)
 }
 
 // ─────────────────────────────────────────
@@ -1848,6 +2040,22 @@ function scheduleLyricsRetry(trackId) {
 // ─────────────────────────────────────────
 //  MAIN FETCH LOOP
 // ─────────────────────────────────────────
+
+// Bring the player back once the welcome screen goes, with whichever panel
+// was showing before it came up.
+function restorePlayerView() {
+  topBar.style.display = 'flex'
+  bottomBar.style.display = 'flex'
+  if (currentContentState === 'lyrics') {
+    lyricsContainer.style.display = 'block'
+    stateScreen.style.display = 'none'
+    recentreLyrics()
+  } else if (currentContentState) {
+    // loading / no-lyrics / english — stateScreen was showing
+    stateScreen.style.display = 'flex'
+    lyricsContainer.style.display = 'none'
+  }
+}
 
 async function fetchNowPlaying() {
   if (isFetching) return
@@ -1957,22 +2165,9 @@ async function fetchNowPlaying() {
 
 
     // welcome screen may be up (nothing had played yet) — restore the player
-    if (!welcomeScreen.classList.contains('hidden') && welcomeScreen.style.display !== 'none') {
-      hideWelcomeScreen(() => {
-        topBar.style.display = 'flex'
-        bottomBar.style.display = 'flex'
-        // restore whichever content panel was showing before pause
-        if (currentContentState === 'lyrics') {
-          lyricsContainer.style.display = 'block'
-          stateScreen.style.display = 'none'
-          // re-sync to current position
-          recentreLyrics()
-        } else if (currentContentState) {
-          // loading / no-lyrics / english — stateScreen was showing
-          stateScreen.style.display = 'flex'
-          lyricsContainer.style.display = 'none'
-        }
-      })
+    if (!onboardingOpen && !welcomeScreen.classList.contains('hidden')
+        && welcomeScreen.style.display !== 'none') {
+      hideWelcomeScreen(restorePlayerView)
     }
 
     // same track — just sync line

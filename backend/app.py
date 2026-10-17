@@ -1241,12 +1241,13 @@ def request_song(user_id):
 
 def user_prefs(conn, user_id):
     row = conn.execute(
-        'SELECT target_lang, auto_translate FROM users WHERE spotify_id = ?',
+        'SELECT target_lang, auto_translate, onboarded FROM users WHERE spotify_id = ?',
         (user_id,)
     ).fetchone()
     if not row:
-        return {'target_lang': 'EN', 'auto_translate': True}
-    return {'target_lang': row[0], 'auto_translate': bool(row[1])}
+        return {'target_lang': 'EN', 'auto_translate': True, 'onboarded': False}
+    return {'target_lang': row[0], 'auto_translate': bool(row[1]),
+            'onboarded': bool(row[2])}
 
 
 @app.route('/prefs')
@@ -1269,10 +1270,11 @@ def update_prefs(user_id):
         if body['target_lang'] not in TARGET_LANGUAGES:
             return jsonify({'error': 'Unsupported target_lang'}), 400
         changes['target_lang'] = body['target_lang']
-    if 'auto_translate' in body:
-        if not isinstance(body['auto_translate'], bool):
-            return jsonify({'error': 'auto_translate must be true or false'}), 400
-        changes['auto_translate'] = body['auto_translate']
+    for flag in ('auto_translate', 'onboarded'):
+        if flag in body:
+            if not isinstance(body[flag], bool):
+                return jsonify({'error': f'{flag} must be true or false'}), 400
+            changes[flag] = body[flag]
 
     # the user row may predate this database (e.g. a session from before it)
     save_user(user_id)

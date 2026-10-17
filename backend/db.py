@@ -73,6 +73,14 @@ SCHEMA = [
 ]
 
 
+# Columns added after a table first shipped. CREATE TABLE IF NOT EXISTS
+# leaves an existing table alone, so these are added where they're missing.
+COLUMNS_ADDED = [
+    # finished the welcome steps, including choosing a language
+    ('users', 'onboarded', 'BOOLEAN NOT NULL DEFAULT FALSE'),
+]
+
+
 def now():
     """Timestamps are stored as epoch seconds: the one format both databases
     compare and sort the same way."""
@@ -110,10 +118,25 @@ def connect():
         conn.close()
 
 
+def column_exists(conn, table, column):
+    if DATABASE_URL:
+        return conn.execute(
+            'SELECT 1 FROM information_schema.columns '
+            'WHERE table_name = ? AND column_name = ?',
+            (table, column)
+        ).fetchone() is not None
+    rows = conn.execute(f'PRAGMA table_info({table})').fetchall()
+    return any(row[1] == column for row in rows)
+
+
 def init_db():
     with connect() as conn:
         for statement in SCHEMA:
             conn.execute(statement)
+        for table, column, definition in COLUMNS_ADDED:
+            if not column_exists(conn, table, column):
+                # names come from the fixed list above, never from a request
+                conn.execute(f'ALTER TABLE {table} ADD COLUMN {column} {definition}')
         if not DATABASE_URL:
             # Local files made before timestamps became epoch seconds hold
             # text dates, which SQLite sorts above every number — they would

@@ -7,7 +7,7 @@ I grew up loving Bollywood music without always understanding the lyrics. I want
 
 Built for language learners, music lovers, and anyone who's ever felt an emotional connection to a song they couldn't fully understand.
 
-**Live:** moving to Vercel, new link coming soon
+**Live:** [lyric-sync26.vercel.app](https://lyric-sync26.vercel.app)
 
 LyricSync runs in Spotify's development mode, which caps an app at 5 manually approved users. If you'd like to try it, **reach out to me directly** and I'll add you to the allowlist.
 

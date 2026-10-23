@@ -10,7 +10,8 @@ import sqlite3
 import time
 from contextlib import contextmanager
 
-DATABASE_URL = os.getenv('DATABASE_URL')
+# Neon on Vercel sets both names; some setups only POSTGRES_URL
+DATABASE_URL = os.getenv('DATABASE_URL') or os.getenv('POSTGRES_URL')
 SQLITE_PATH = os.path.join(os.path.dirname(__file__), 'translations.db')
 if os.getenv('VERCEL') and not DATABASE_URL:
     # Vercel's filesystem is read-only apart from /tmp, and /tmp doesn't

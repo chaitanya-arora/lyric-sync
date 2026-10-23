@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 import requests
 
+import db
 from conftest import FakeResponse, make_track
 
 
@@ -917,3 +918,9 @@ def test_device_id_must_look_like_one(playback):
     resp = client.post('/playback', json={'action': 'play', 'device_id': '../me'})
     assert resp.status_code == 400
     assert calls == []
+
+
+def test_health_names_the_database_without_secrets(client, database):
+    data = client.get('/health').get_json()
+    assert data == {'database': 'postgres' if db.DATABASE_URL else 'sqlite',
+                    'database_reachable': True}

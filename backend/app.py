@@ -260,6 +260,24 @@ def home():
     return render_template('index.html')
 
 
+@app.route('/health')
+def health():
+    """Which database the app is really using, and whether it answers — so a
+    deploy that quietly fell back to a throwaway SQLite file shows up.
+    Nothing secret: no addresses, no data."""
+    try:
+        with db.connect() as conn:
+            conn.execute('SELECT 1').fetchone()
+        reachable = True
+    except Exception:
+        app.logger.exception('Database check failed')
+        reachable = False
+    return jsonify({
+        'database': 'postgres' if db.DATABASE_URL else 'sqlite',
+        'database_reachable': reachable,
+    }), 200 if reachable else 503
+
+
 @app.route('/login')
 def login():
     # ties the callback to a login this browser started — without it, anyone

@@ -12,6 +12,10 @@ from contextlib import contextmanager
 
 DATABASE_URL = os.getenv('DATABASE_URL')
 SQLITE_PATH = os.path.join(os.path.dirname(__file__), 'translations.db')
+if os.getenv('VERCEL') and not DATABASE_URL:
+    # Vercel's filesystem is read-only apart from /tmp, and /tmp doesn't
+    # last: this only keeps a deploy without a database from crashing.
+    SQLITE_PATH = '/tmp/translations.db'
 
 SCHEMA = [
     # translated lyrics, shared by everyone — keyed "{track_id}_{target_lang}"

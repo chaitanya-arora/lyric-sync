@@ -7,7 +7,7 @@ I grew up loving Bollywood music without always understanding the lyrics. I want
 
 Built for language learners, music lovers, and anyone who's ever felt an emotional connection to a song they couldn't fully understand.
 
-**Live:** [lyric-sync-production.up.railway.app](https://lyric-sync-production.up.railway.app)
+**Live:** moving to Vercel, new link coming soon
 
 LyricSync runs in Spotify's development mode, which caps an app at 5 manually approved users. If you'd like to try it, **reach out to me directly** and I'll add you to the allowlist.
 
@@ -55,13 +55,13 @@ Tools with similar real-time translation existed, but the ones I found had weak 
 | Layer | Technology |
 |---|---|
 | Frontend | HTML, CSS, vanilla JavaScript, [globe.gl](https://globe.gl) for Explore |
-| Backend | Python, Flask, served by Gunicorn |
+| Backend | Python, Flask |
 | Database | PostgreSQL in production, SQLite locally |
 | Auth & playback | Spotify OAuth 2.0, Web API and Web Playback SDK |
 | Lyrics | [LRCLIB](https://lrclib.net) |
 | Translation | [DeepL](https://www.deepl.com) |
 | Charts | Apple Music's public most-played charts, matched to Spotify on demand |
-| Hosting | Railway, auto-deployed from `main` |
+| Hosting | Vercel (Flask as a Vercel Function), with Neon Postgres; auto-deployed from `main` |
 | CI | GitHub Actions: flake8 and the full test suite, against SQLite and Postgres |
 
 ---
@@ -131,7 +131,8 @@ backend/
     style.css       Design tokens and styles
     places.js       A credited photo for each country's chart page
   tests/            pytest suite
-Procfile            How Railway starts Gunicorn
+index.py            Where Vercel finds the Flask app
+vercel.json         Vercel build and function settings
 ```
 
 ---
@@ -156,7 +157,7 @@ Procfile            How Railway starts Gunicorn
 
 ## Testing & deployment
 
-Backend logic and API routes are covered by a pytest suite of 200+ tests, run by GitHub Actions on every push and pull request, against both SQLite and Postgres. The app auto-deploys to Railway on every commit to `main`, so what's live always reflects the latest tested code.
+Backend logic and API routes are covered by a pytest suite of 200+ tests, run by GitHub Actions on every push and pull request, against both SQLite and Postgres. The app auto-deploys to Vercel on every commit to `main`, so what's live always reflects the latest tested code.
 
 Beyond automated tests, I use LyricSync myself daily and have shared it with a few friends. That real usage surfaces edge cases and awkward UX flows that tests don't catch.
 

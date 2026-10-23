@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "mkdir -p public && cp -R backend/static public/static",
+  "functions": {
+    "index.py": { "maxDuration": 60 }
+  }
+}

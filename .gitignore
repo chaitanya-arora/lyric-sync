@@ -15,3 +15,7 @@ backend/translations.db
 .vscode/
 .idea/
 .DS_Store
+
+# Vercel: static files copied here at build time, and its local settings
+public/
+.vercel/
